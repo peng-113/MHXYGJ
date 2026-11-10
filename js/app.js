@@ -11,6 +11,7 @@
     renXiu: { gong: '', fang: '', fa: '', kang: '' },
     chongXiu: { gong: '', fang: '', fa: '', kang: '' },
     skills: ['', '', '', '', '', '', ''],
+    skillNames: [],
     qiangZhuang: '', shenSu: '',
     mounts: [],
   });
@@ -40,6 +41,9 @@
     }
     o[keys[keys.length - 1]] = val;
   }
+  /** 输入框上的 data-num / data-text 形如 character.level，
+   *  但读写对象已经是 state.character，需去掉这层前缀 */
+  const relPath = (p) => String(p || '').replace(/^character\./, '');
 
   // ---------- 工具 ----------
   const fmtMoney = (n) => '¥' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -53,11 +57,13 @@
   // ---------- 存储 ----------
   function save() {
     try {
+      const note = document.getElementById('import-note');
       localStorage.setItem(STORE, JSON.stringify({
         character: state.character,
         counts: state.counts,
         params: state.params,
         tiers: state.tiers,
+        importNote: note && !note.hidden ? note.textContent : '',
       }));
     } catch (e) { /* 隐私模式下忽略 */ }
   }
@@ -70,6 +76,10 @@
       if (d.counts) state.counts = Object.assign({ equip: {}, lingshi: {}, pet: {}, child: {} }, d.counts);
       if (d.params) state.params = d.params;
       if (d.tiers) state.tiers = d.tiers;
+      if (d.importNote) {
+        const note = document.getElementById('import-note');
+        if (note) { note.textContent = d.importNote; note.hidden = false; }
+      }
     } catch (e) { /* 忽略损坏数据 */ }
   }
 
@@ -77,11 +87,12 @@
   function renderSkillGrid() {
     const grid = document.getElementById('skill-grid');
     grid.innerHTML = '';
+    const names = state.character.skillNames || [];
     for (let i = 0; i < 7; i++) {
       const label = document.createElement('label');
       label.className = 'field';
       const span = document.createElement('span');
-      span.textContent = `技能 ${i + 1}`;
+      span.textContent = names[i] ? `${names[i]}` : `技能 ${i + 1}`;
       const input = document.createElement('input');
       input.type = 'number';
       input.inputMode = 'numeric';
@@ -222,11 +233,11 @@
   // ---------- 输入同步 ----------
   function syncInputs() {
     document.querySelectorAll('[data-num]').forEach((el) => {
-      const v = getPath(state.character, el.dataset.num);
+      const v = getPath(state.character, relPath(el.dataset.num));
       el.value = v === undefined || v === null ? '' : v;
     });
     document.querySelectorAll('[data-text]').forEach((el) => {
-      const v = getPath(state.character, el.dataset.text);
+      const v = getPath(state.character, relPath(el.dataset.text));
       el.value = v === undefined || v === null ? '' : v;
     });
     document.querySelectorAll('[data-param]').forEach((el) => {
@@ -246,10 +257,10 @@
     document.addEventListener('input', (e) => {
       const el = e.target;
       if (el.dataset && el.dataset.num) {
-        setPath(state.character, el.dataset.num, el.value === '' ? '' : Number(el.value));
+        setPath(state.character, relPath(el.dataset.num), el.value === '' ? '' : Number(el.value));
         recalc(); save();
       } else if (el.dataset && el.dataset.text) {
-        setPath(state.character, el.dataset.text, el.value);
+        setPath(state.character, relPath(el.dataset.text), el.value);
         recalc(); save();
       } else if (el.dataset && el.dataset.param) {
         setPath(state.params, el.dataset.param, el.value === '' ? '' : Number(el.value));
@@ -372,11 +383,23 @@
             state.character[k] = ch[k];
           }
         });
+        renderSkillGrid();
         syncInputs();
         recalc();
         save();
+        const summary = `已填入 ${r.filled.length} 项：${r.filled.join('、')}` +
+          (r.warnings.length ? `\n待补填：${r.warnings.join('；')}` : '');
         msg.className = 'msg ok';
-        msg.textContent = `已填入：${r.filled.join('、') || '（无）'}\n` + (r.warnings.length ? '待补填：' + r.warnings.join('；') : '');
+        msg.textContent = summary;
+        const note = document.getElementById('import-note');
+        if (note) { note.textContent = summary.replace(/\n/g, '｜'); note.hidden = false; }
+        // 成功即关闭弹窗，让用户直接看到已填入的数值
+        setTimeout(() => {
+          modal.hidden = true;
+          document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'basic'));
+          document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-basic'));
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 900);
       } catch (e) {
         msg.className = 'msg err';
         msg.textContent = '解析失败：' + e.message;
@@ -399,13 +422,15 @@
     document.getElementById('btn-demo').onclick = () => {
       state.character = Object.assign(emptyChar(), clone(DEMO));
       state.counts = { equip: { T2: 2 }, lingshi: { T2: 1 }, pet: { A: 1 }, child: {} };
-      syncInputs(); renderCounters(); recalc(); save();
+      renderSkillGrid(); syncInputs(); renderCounters(); recalc(); save();
     };
     document.getElementById('btn-clear').onclick = () => {
       if (!confirm('确定清空全部录入内容？（参数设置不受影响）')) return;
       state.character = emptyChar();
       state.counts = { equip: {}, lingshi: {}, pet: {}, child: {} };
-      syncInputs(); renderCounters(); recalc(); save();
+      const note = document.getElementById('import-note');
+      if (note) note.hidden = true;
+      renderSkillGrid(); syncInputs(); renderCounters(); recalc(); save();
     };
     document.getElementById('btn-add-mount').onclick = () => {
       state.character.mounts.push({ growth: '' });
