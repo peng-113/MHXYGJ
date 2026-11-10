@@ -56,10 +56,13 @@
     return new Function('return (' + lpcToJs(lpc) + ')')();
   }
 
-  /** 从整页 HTML / 密文中取出密文串 */
+  /** 从整页 HTML / 密文中取出密文串（真实密文可能以 @ 结尾，需容错） */
   function extractDesc(text) {
     const s = String(text || '').trim();
-    if (/^@[^@\s]+@[A-Za-z0-9+/=]+$/.test(s)) return s;
+    const trimAt = (v) => String(v || '').replace(/@+\s*$/, '').trim();
+    // 纯密文：@盐@base64（允许结尾多一个 @、允许中间含空白）
+    const bare = trimAt(s);
+    if (/^@[^@\s]+@[A-Za-z0-9+/=\s]+$/.test(bare)) return bare.replace(/\s+/g, '');
     const patterns = [
       /id=["']equip_desc_value["'][^>]*>([\s\S]*?)<\/textarea>/i,
       /id=["']equip_desc_value["'][^>]*value=["']([^"']+)["']/i,
@@ -69,7 +72,9 @@
     ];
     for (const re of patterns) {
       const m = s.match(re);
-      if (m && m[1]) return m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+      if (m && m[1]) {
+        return trimAt(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+      }
     }
     return null;
   }
@@ -84,7 +89,7 @@
       'jiyuan', 'ji_yuan',
       'iExptSki1', 'iExptSki2', 'iExptSki3', 'iExptSki4', 'iExptSki5',
       'iBeastSki1', 'iBeastSki2', 'iBeastSki3', 'iBeastSki4',
-      'iNutsNum', 'TA_iAllNewPoint', 'TA_iAllPoint', 'shenqi_score',
+      'iNutsNum', 'addPoint', 'TA_iAllNewPoint', 'TA_iAllPoint', 'shenqi_score',
       'all_skills', 'AllEquip',
     ].forEach((k) => {
       const v = get(k);
@@ -154,8 +159,15 @@
     ch.totalExpYi = expRaw === undefined ? undefined
       : (expRaw > 1e6 ? Math.round((expRaw / 1e8) * 10) / 10 : expRaw);
     ch.huaShengLayers = num(pick(raw.i3FlyLv, 0));
-    // 机缘：raw 字段名是 jiyuan（月饼 / 粽子等累积）
-    ch.jiYuan = num(pick(raw.jiyuan, raw.ji_yuan));
+    // 机缘：藏宝阁"月饼粽子机缘"= addPoint(月饼粽子食用量) + jiyuan(已获得机缘属性)
+    // 页面模板原逻辑：basic_info.add_point + basic_info.ji_yuan
+    const jiEat = num(raw.addPoint);
+    const jiBase = num(raw.jiyuan);
+    if (jiEat !== undefined || jiBase !== undefined) {
+      ch.jiYuan = (jiEat || 0) + (jiBase || 0);
+      if (jiEat !== undefined) ch.jiYuanEat = jiEat;
+      if (jiBase !== undefined) ch.jiYuanBase = jiBase;
+    }
     ch.qianYuanDan = num(pick(raw.TA_iAllNewPoint, raw.TA_iAllPoint));
     // 潜能果：raw 字段名是 iNutsNum
     ch.potentialFruitCount = num(pick(raw.iNutsNum, raw.qian_neng_guo));
@@ -192,6 +204,18 @@
     return ch;
   }
 
+  /**
+   * 从整页源码里读"月饼粽子机缘：40/69"（服务端渲染，源码里就有）
+   * 返回 { value, cap } 或 null
+   */
+  function parseJiYuanFromHtml(text) {
+    // 真实源码形如：<strong>月饼粽子机缘：</strong>40/69，需先去掉标签
+    const plain = String(text || '').replace(/<[^>]*>/g, '');
+    const m = plain.match(/月饼粽子机缘[：:]\s*(\d+)\s*\/\s*(\d+)/);
+    if (!m) return null;
+    return { value: Number(m[1]), cap: Number(m[2]) };
+  }
+
   /** 完整导入：文本（页面源码或密文） -> { character, warnings, raw } */
   function importFromText(text) {
     const desc = extractDesc(text);
@@ -202,13 +226,19 @@
     const obj = lpcToObject(lpc);
     const raw = normalizeRaw(obj);
     const ch = mapRaw(raw);
+    // 页面源码里的"月饼粽子机缘：X/Y"更权威（含上限），优先采用
+    const jy = parseJiYuanFromHtml(text);
+    if (jy) {
+      ch.jiYuan = jy.value;
+      if (jy.cap) ch.jiYuanCap = jy.cap;
+    }
     const filled = [];
     if (ch.level) filled.push('等级');
     if (ch.sect) filled.push('门派');
     if (ch.renXiu && Object.keys(ch.renXiu).length) filled.push('人物修炼');
     if (ch.chongXiu && Object.keys(ch.chongXiu).length) filled.push('召唤兽修炼');
     if (ch.qianYuanDan !== undefined) filled.push('乾元丹');
-    if (ch.jiYuan !== undefined) filled.push('机缘');
+    if (ch.jiYuan !== undefined) filled.push(`机缘 ${ch.jiYuan}${ch.jiYuanCap ? '/' + ch.jiYuanCap : ''}`);
     if (ch.shenQiPoints !== undefined) filled.push('神器积分');
     if (ch.potentialFruitCount !== undefined) filled.push('潜能果');
     if (ch.totalExpYi !== undefined) filled.push('总经验');
@@ -299,6 +329,6 @@
     return ch;
   }
 
-  MHY.cbg = { decodeDesc, lpcToJs, lpcToObject, extractDesc, importFromText, mapCbgData, mapRaw, normalizeRaw, parseSkillsFromRaw, stripColor };
+  MHY.cbg = { decodeDesc, lpcToJs, lpcToObject, extractDesc, importFromText, mapCbgData, mapRaw, normalizeRaw, parseSkillsFromRaw, parseJiYuanFromHtml, stripColor };
   if (typeof module === 'object' && module.exports) module.exports = MHY.cbg;
 })(typeof self !== 'undefined' ? self : this);

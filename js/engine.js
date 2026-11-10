@@ -252,7 +252,8 @@
     if (jy !== undefined && jy !== null && jy !== '') {
       const jc = params.jiYuan;
       const v = jy >= jc.full ? jc.fullBonus : Math.max(0, jc.fullBonus - (jc.full - jy) * jc.perPoint);
-      items.push({ category: '底子', name: '机缘', method: '固定金额', basis: `${jy}点（满${jc.full}），每少1点扣${jc.perPoint}`, discount: '-', value: fmt(v), status: 'ok' });
+      const capTxt = character.jiYuanCap ? `/${character.jiYuanCap}` : '';
+      items.push({ category: '底子', name: '机缘', method: '固定金额', basis: `${jy}${capTxt}点（满${jc.full}），每少1点扣${jc.perPoint}`, discount: '-', value: fmt(v), status: 'ok' });
     }
 
     // ---- 11. 装备 / 灵饰（档位金额）----

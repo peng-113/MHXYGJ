@@ -7,6 +7,7 @@
 
   const emptyChar = () => ({
     level: '', sect: '', totalExpYi: '', huaShengLayers: '', jiYuan: '',
+    jiYuanEat: '', jiYuanBase: '', jiYuanCap: '',
     qianYuanDan: '', potentialFruitCount: '', shenQiPoints: '', shouShu: '',
     renXiu: { gong: '', fang: '', fa: '', kang: '' },
     chongXiu: { gong: '', fang: '', fa: '', kang: '' },
@@ -250,6 +251,12 @@
       if (rule) el.value = rule.price;
     });
     renderMounts();
+    // 机缘标签：拿到上限时显示 40/69 形式
+    const jyLabel = document.getElementById('jiyuan-label');
+    if (jyLabel) {
+      const cap = state.character.jiYuanCap;
+      jyLabel.textContent = cap ? `机缘（点，上限 ${cap}）` : '机缘（点）';
+    }
   }
 
   // ---------- 录入绑定 ----------
