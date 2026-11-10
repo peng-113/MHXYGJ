@@ -1,6 +1,6 @@
 {
-  "rev": 1,
-  "updatedAt": "2026-11-10T03:53:47.331Z",
+  "rev": 1794293328970,
+  "updatedAt": "2026-11-10T06:48:48.970Z",
   "params": {
     "_comment": "全局基础参数与固定金额规则。所有数值均可在前端界面调整并保存；标注[估算]的表为内置插值数据，请按游戏内实际数据核对后替换。",
     "goldRate": 0.0716,
@@ -20,34 +20,34 @@
       "strong": 1
     },
     "_discounts_comment": "折现比例：各类成本项独立配置，填 0.8 表示消耗打 8 折估值",
-    "potentialFruitUnit": 50,
+    "potentialFruitUnit": 0,
     "_potentialFruitUnit_comment": "潜能果单价：元/个（人民币直付），填 0 表示不计价",
-    "huaShengUnit": 300,
+    "huaShengUnit": 0,
     "_huaShengUnit_comment": "化圣单价：元/层（人民币直付），填 0 表示不计价",
     "expBonus": {
-      "threshold1": 700,
-      "bonus1": 1000,
-      "threshold2": 800,
-      "bonus2": 2000,
+      "threshold1": 0,
+      "bonus1": 0,
+      "threshold2": 0,
+      "bonus2": 0,
       "stack": true
     },
     "_expBonus_comment": "经验底子：单位亿。超过 threshold1 加 bonus1，超过 threshold2 加 bonus2；stack=true 表示两项叠加",
     "mountBonus": {
-      "t1": 2.2,
-      "b1": 50,
-      "t2": 2.3,
-      "b2": 100
+      "t1": 0,
+      "b1": 0,
+      "t2": 0,
+      "b2": 0
     },
     "_mountBonus_comment": "坐骑成长加价：>t2 加 b2 元/只，>t1 加 b1 元/只，每只独立判定可叠加",
     "shenQi": {
-      "qualifiedPoints": 8,
-      "qualifiedPrice": 1500,
-      "extremePoints": 12,
-      "extremePrice": 3000
+      "qualifiedPoints": 0,
+      "qualifiedPrice": 0,
+      "extremePoints": 0,
+      "extremePrice": 0
     },
     "_shenQi_comment": "神器：积分 >= extremePoints 按极限档，>= qualifiedPoints 按合格档，否则不计价",
     "jiYuan": {
-      "full": 57,
+      "full": 69,
       "fullBonus": 500,
       "perPoint": 20
     },
