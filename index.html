@@ -212,10 +212,19 @@
       <h2>从藏宝阁页面导入</h2>
       <button class="btn ghost small" id="btn-close-import">关闭</button>
     </div>
+    <div class="bm-box">
+      <p class="hint"><b>方式一（推荐）：书签一键导入</b><br>
+        把下面这个按钮<b>拖到浏览器书签栏</b>（只需做一次）。以后在藏宝阁账号详情页点它，数据会自动带过来，不用复制任何源码。</p>
+      <div class="row">
+        <a class="btn primary small" id="bm-link" href="#" draggable="true">⚡ 导入藏宝阁账号</a>
+        <button class="btn ghost small" id="bm-copy">复制书签代码</button>
+      </div>
+      <p class="hint" id="bm-tip"></p>
+    </div>
     <p class="hint">
-      电脑上打开账号详情页 → 右键“查看网页源代码”（或 Ctrl+U）→ 全选复制 → 粘贴到下方。<br>
+      <b>方式二：粘贴源码</b>——电脑上打开账号详情页 → 右键“查看网页源代码”（或 Ctrl+U）→ 全选复制 → 粘贴到下方。<br>
       也可以直接粘贴页面里 <code>equip_desc_value</code> 那段以 <code>@</code> 开头的密文。<br>
-      解码全部在你的浏览器内完成，不上传任何数据。
+      两种方式都只在本机浏览器内解码，不上传任何数据。
     </p>
     <textarea id="import-text" placeholder="粘贴页面源码，或 @盐@base64 密文…"></textarea>
     <div class="row">

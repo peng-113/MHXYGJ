@@ -219,6 +219,17 @@ main {
   word-break: break-all;
 }
 
+.bm-box {
+  margin: 12px 0 14px;
+  padding: 12px 12px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px dashed var(--line);
+}
+.bm-box .hint { margin: 0 0 8px; }
+.bm-box .row { margin-top: 8px; }
+.bm-box a.btn { text-decoration: none; display: inline-flex; align-items: center; cursor: grab; }
+
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- 档位计数 ---------- */

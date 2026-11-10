@@ -372,6 +372,76 @@
   }
 
   // ---------- 导入 ----------
+  // ---------- 导入（粘贴源码 / 书签带参） ----------
+  /** 把导入文本解码并填入当前角色，返回 { filled, warnings } */
+  function applyImport(rawText) {
+    const r = cbg.importFromText(rawText);
+    const ch = r.character;
+    Object.keys(ch).forEach((k) => {
+      if (k === 'renXiu' || k === 'chongXiu') {
+        state.character[k] = Object.assign({ gong: '', fang: '', fa: '', kang: '' }, ch[k]);
+      } else {
+        state.character[k] = ch[k];
+      }
+    });
+    renderSkillGrid();
+    syncInputs();
+    recalc();
+    save();
+    const summary = `已填入 ${r.filled.length} 项：${r.filled.join('、')}` +
+      (r.warnings.length ? `\n待补填：${r.warnings.join('；')}` : '');
+    const note = document.getElementById('import-note');
+    if (note) { note.textContent = summary.replace(/\n/g, '｜'); note.hidden = false; }
+    // 导入完回到基础页，让用户直接看到数值
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'basic'));
+    document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-basic'));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return { summary, warnings: r.warnings };
+  }
+
+  /** 书签小工具代码：在藏宝阁页面读取密文与机缘上限，带参打开本站 */
+  function buildBookmarklet() {
+    const site = location.origin + location.pathname;
+    const code = [
+      '(function(){',
+      "var el=document.getElementById('equip_desc_value');",
+      "if(!el){alert('没找到角色数据：请先登录藏宝阁、打开账号详情页，等页面显示等级/修炼信息后再点这个书签。');return;}",
+      "var d=String(el.value||el.textContent||'').replace(/\\s+/g,'');",
+      "var m=d.match(/@[^@]+@[A-Za-z0-9+/=]+@?/);",
+      'if(m){d=m[0];}',
+      "if(d.length<50){alert('角色数据为空：可能未登录或页面还没加载完，稍等几秒再点。');return;}",
+      "var j='';",
+      "var t=(document.body.innerText||'').replace(/\\s+/g,' ');",
+      "var mm=t.match(/月饼粽子机缘[：:]\\s*(\\d+)\\s*\\/\\s*(\\d+)/);",
+      'if(mm){j=mm[1]+"/"+mm[2];}',
+      "var p=encodeURIComponent(JSON.stringify({d:d,j:j}));",
+      "window.open('" + site + "#mhy='+p,'_blank');",
+      '})()',
+    ].join('');
+    return 'javascript:' + code;
+  }
+
+  /** 从地址栏 #mhy=... 导入（书签小工具带过来的数据） */
+  function importFromHash() {
+    const m = (location.hash || '').match(/[#&]mhy=([^&]+)/);
+    if (!m) return false;
+    let payload = null;
+    try {
+      payload = JSON.parse(decodeURIComponent(m[1]));
+    } catch (e) { return false; }
+    if (!payload || !payload.d) return false;
+    const textVal = payload.d + (payload.j ? '\n月饼粽子机缘：' + payload.j : '');
+    try {
+      applyImport(textVal);
+    } catch (e) {
+      alert('书签导入失败：' + e.message + '\n可改用“粘贴页面源码”方式。');
+      return false;
+    }
+    // 清掉地址栏里的数据，避免刷新重复导入、也避免链接被误分享
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+    return true;
+  }
+
   function bindImport() {
     const modal = document.getElementById('import-modal');
     const msg = document.getElementById('import-msg');
@@ -387,36 +457,32 @@
     // 浏览器会在背景元素上补发一次 click，导致弹窗被误关。只允许按钮关闭。
     document.getElementById('btn-clear-import').onclick = () => { text.value = ''; msg.textContent = ''; };
 
+    // 书签小工具：直接把代码写到链接上，用户拖到书签栏即可
+    const bm = buildBookmarklet();
+    const bmLink = document.getElementById('bm-link');
+    if (bmLink) bmLink.setAttribute('href', bm);
+    const bmCopy = document.getElementById('bm-copy');
+    if (bmCopy) {
+      bmCopy.onclick = async () => {
+        const tip = document.getElementById('bm-tip');
+        try {
+          await navigator.clipboard.writeText(bm);
+          if (tip) tip.textContent = '书签代码已复制。新建一个书签，把网址粘贴进去即可（名称随意，如“导入藏宝阁”）。';
+        } catch (e) {
+          if (tip) tip.textContent = '复制失败，请右键上面的按钮 →“复制链接地址”，或手动新建书签粘贴。';
+        }
+      };
+    }
+
     document.getElementById('btn-do-import').onclick = () => {
       msg.className = 'msg';
       msg.textContent = '解析中…';
       try {
-        const r = cbg.importFromText(text.value);
-        const ch = r.character;
-        Object.keys(ch).forEach((k) => {
-          if (k === 'renXiu' || k === 'chongXiu') {
-            state.character[k] = Object.assign({ gong: '', fang: '', fa: '', kang: '' }, ch[k]);
-          } else {
-            state.character[k] = ch[k];
-          }
-        });
-        renderSkillGrid();
-        syncInputs();
-        recalc();
-        save();
-        const summary = `已填入 ${r.filled.length} 项：${r.filled.join('、')}` +
-          (r.warnings.length ? `\n待补填：${r.warnings.join('；')}` : '');
+        const { summary } = applyImport(text.value);
         msg.className = 'msg ok';
         msg.textContent = summary;
-        const note = document.getElementById('import-note');
-        if (note) { note.textContent = summary.replace(/\n/g, '｜'); note.hidden = false; }
         // 成功即关闭弹窗，让用户直接看到已填入的数值
-        setTimeout(() => {
-          modal.hidden = true;
-          document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'basic'));
-          document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-basic'));
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }, 900);
+        setTimeout(() => { modal.hidden = true; }, 900);
       } catch (e) {
         msg.className = 'msg err';
         msg.textContent = '解析失败：' + e.message;
@@ -489,6 +555,8 @@
   bindImport();
   bindQuick();
   bindExport();
+  // 书签小工具带参进来：先导入，再渲染初始态（确保覆盖本地缓存）
+  const fromBookmark = importFromHash();
   syncInputs();
   syncFooterHeight();
   window.addEventListener('resize', syncFooterHeight);

@@ -76,6 +76,9 @@
         return trimAt(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
       }
     }
+    // 兜底：整段文本里夹着别的文字时（如书签附加的“月饼粽子机缘：40/69”），直接抓子串
+    const loose = s.match(/@[^@\s]{1,40}@[A-Za-z0-9+/=]{40,}@?/);
+    if (loose) return trimAt(loose[0]);
     return null;
   }
 
