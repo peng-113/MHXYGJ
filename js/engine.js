@@ -251,9 +251,13 @@
     const jy = character.jiYuan;
     if (jy !== undefined && jy !== null && jy !== '') {
       const jc = params.jiYuan;
-      const v = jy >= jc.full ? jc.fullBonus : Math.max(0, jc.fullBonus - (jc.full - jy) * jc.perPoint);
-      const capTxt = character.jiYuanCap ? `/${character.jiYuanCap}` : '';
-      items.push({ category: '底子', name: '机缘', method: '固定金额', basis: `${jy}${capTxt}点（满${jc.full}），每少1点扣${jc.perPoint}`, discount: '-', value: fmt(v), status: 'ok' });
+      // “满”优先取账号实际读取到的上限（如 69），读不到时退回参数页配置（默认 57）
+      const capNum = Number(character.jiYuanCap);
+      const hasCap = isFinite(capNum) && capNum > 0;
+      const full = hasCap ? capNum : jc.full;
+      const v = jy >= full ? jc.fullBonus : Math.max(0, jc.fullBonus - (full - jy) * jc.perPoint);
+      const fullTxt = hasCap ? `满${full}，按账号上限` : `满${full}`;
+      items.push({ category: '底子', name: '机缘', method: '固定金额', basis: `${jy}/${full}点（${fullTxt}），每少1点扣${jc.perPoint}`, discount: '-', value: fmt(v), status: 'ok' });
     }
 
     // ---- 11. 装备 / 灵饰（档位金额）----

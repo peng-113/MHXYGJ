@@ -253,6 +253,7 @@
     if (!skillFilled) warnings.push('未找到师门技能数据，请手动填写');
     if (ch.qiangZhuang === undefined) warnings.push('未找到强壮等级，请手动填写');
     if (ch.shenSu === undefined) warnings.push('未找到神速等级，请手动填写');
+    if (ch.jiYuan !== undefined && !(Number(ch.jiYuanCap) > 0)) warnings.push('未读到机缘上限（只贴密文时无此数据），机缘按参数页的“满点”计算；粘贴整页源码可自动带上限');
     warnings.push('装备 / 灵饰 / 召唤兽档位需在“装备宝宝”页手动计数');
     return { character: ch, warnings, filled, raw };
   }
