@@ -1,0 +1,234 @@
+/**
+ * 藏宝阁数据解码与字段映射（纯浏览器，无需服务器）
+ * 链路：@盐@base64 -> JSON{d} -> 逐字符 XOR 盐 -> LPC 字符串 -> JS 对象 -> 统一 character 结构
+ * 说明：页面里的 RoleInfoParser 负责拆分技能/装备/宝宝；纯静态页拿不到它，
+ *       但 raw 数据中已包含等级、人修、宠修、乾元丹、机缘、神器积分、潜能果、总经验等核心字段。
+ */
+(function (root) {
+  const MHY = root.MHY || (root.MHY = {});
+
+  /** 去掉描述里的颜色控制符 */
+  function stripColor(s) {
+    return String(s || '')
+      .replace(/#[RGBK_YWbunr]/g, ' ')
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function countSkills(entry) {
+    const sk = entry.all_skills || entry.skills || entry.skill;
+    if (!sk) return undefined;
+    if (Array.isArray(sk)) return sk.length;
+    if (typeof sk === 'object') return Object.keys(sk).length;
+    return undefined;
+  }
+
+  const b64ToText = (b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8').decode(bytes);
+  };
+
+  /** 解密 desc：@盐@base64 -> LPC 文本 */
+  function decodeDesc(desc) {
+    const parts = String(desc).split('@');
+    if (parts.length < 3) throw new Error('密文格式异常（缺少 @盐@ 段）');
+    const salt = parts[1];
+    const obj = JSON.parse(b64ToText(parts[2].replace(/\s+/g, '')));
+    if (!obj || typeof obj.d !== 'string') throw new Error('密文解码后缺少 d 字段');
+    let out = '';
+    for (let i = 0; i < obj.d.length; i++) {
+      out += String.fromCharCode(obj.d.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+    }
+    return out;
+  }
+
+  /** LPC 文本 -> JS 表达式文本（数字键、([ ]) 映射等问题在此处理） */
+  function lpcToJs(lpc) {
+    const dict = { '([': '{', '])': '}', '({': '[', '})': ']', ',})': ']', ',])': '}' };
+    return String(lpc).replace(/\(\[|,?\s*\]\)|\(\{|,?\s*\}\)/g, (m) => dict[m.replace(/\s+/g, '')] || m);
+  }
+
+  /** LPC 文本 -> JS 对象 */
+  function lpcToObject(lpc) {
+    return new Function('return (' + lpcToJs(lpc) + ')')();
+  }
+
+  /** 从整页 HTML / 密文中取出密文串 */
+  function extractDesc(text) {
+    const s = String(text || '').trim();
+    if (/^@[^@\s]+@[A-Za-z0-9+/=]+$/.test(s)) return s;
+    const patterns = [
+      /id=["']equip_desc_value["'][^>]*>([\s\S]*?)<\/textarea>/i,
+      /id=["']equip_desc_value["'][^>]*value=["']([^"']+)["']/i,
+      /"equip_desc_value"\s*:\s*"([^"]+)"/i,
+      /"equip_desc"\s*:\s*"(@[^"]+)"/i,
+      /value=["'](@[^"']{40,})["']/i,
+    ];
+    for (const re of patterns) {
+      const m = s.match(re);
+      if (m && m[1]) return m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+    }
+    return null;
+  }
+
+  /** 从原始 raw 数据中尽力搜集可映射字段（raw 结构随版本略有差异） */
+  function normalizeRaw(obj) {
+    const raw = {};
+    const src = obj && typeof obj === 'object' ? obj : {};
+    const get = (k) => (src[k] !== undefined ? src[k] : (src.raw && src.raw[k]));
+    [
+      'iGrade', 'cName', 'iSchool', 'sum_exp', 'i3FlyLv', 'iZhuanZhi', 'ji_yuan', 'jiyuan',
+      'iExptSki1', 'iExptSki2', 'iExptSki3', 'iExptSki4', 'iExptSki5',
+      'iBeastSki1', 'iBeastSki2', 'iBeastSki3', 'iBeastSki4',
+      'TA_iAllNewPoint', 'TA_iAllPoint', 'shenqi_score', 'qian_neng_guo', 'qian_neng_guo_num',
+    ].forEach((k) => {
+      const v = get(k);
+      if (v !== undefined && v !== null) raw[k] = v;
+    });
+    return raw;
+  }
+
+  /** 把 raw 映射为统一 character（只填能确定的字段） */
+  function mapRaw(raw, extra) {
+    const ch = {};
+    const num = (v) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') {
+        const m = v.match(/([\d.]+)/);
+        if (m) return parseFloat(m[1]);
+      }
+      return undefined;
+    };
+    const pick = (a, b) => (a !== undefined && a !== null && a !== '' ? a : b);
+
+    ch.level = num(pick(raw.iGrade, undefined));
+    // sum_exp 为绝对经验值，换算为"亿"；若已是亿级小数字则原样保留
+    const expRaw = num(pick(raw.sum_exp, undefined));
+    ch.totalExpYi = expRaw === undefined ? undefined
+      : (expRaw > 1e6 ? Math.round((expRaw / 1e8) * 10) / 10 : expRaw);
+    ch.huaShengLayers = num(pick(raw.i3FlyLv, 0));
+    ch.jiYuan = num(pick(raw.jiYuan !== undefined ? raw.jiYuan : raw.ji_yuan, undefined));
+    ch.qianYuanDan = num(pick(raw.TA_iAllNewPoint, undefined));
+    ch.potentialFruitCount = num(pick(raw.qian_neng_guo, raw.qian_neng_guo_num));
+    ch.shenQiPoints = num(pick(raw.shenqi_score, undefined));
+    if (raw.cName) ch.nickname = String(raw.cName);
+
+    ch.renXiu = {
+      gong: num(raw.iExptSki1), fang: num(raw.iExptSki2),
+      fa: num(raw.iExptSki3), kang: num(raw.iExptSki4),
+    };
+    ch.shouShu = num(raw.iExptSki5);
+    ch.chongXiu = {
+      gong: num(raw.iBeastSki1), fang: num(raw.iBeastSki2),
+      fa: num(raw.iBeastSki3), kang: num(raw.iBeastSki4),
+    };
+    Object.keys(ch.renXiu).forEach((k) => { if (ch.renXiu[k] === undefined) delete ch.renXiu[k]; });
+    Object.keys(ch.chongXiu).forEach((k) => { if (ch.chongXiu[k] === undefined) delete ch.chongXiu[k]; });
+    if (extra && extra.sect) ch.sect = extra.sect;
+    return ch;
+  }
+
+  /** 完整导入：文本（页面源码或密文） -> { character, warnings, raw } */
+  function importFromText(text) {
+    const desc = extractDesc(text);
+    if (!desc) {
+      throw new Error('没找到装备描述密文。请复制详情页"查看源码"全文，或直接粘贴以 @ 开头的密文串。');
+    }
+    const lpc = decodeDesc(desc);
+    const obj = lpcToObject(lpc);
+    const raw = normalizeRaw(obj);
+    const ch = mapRaw(raw);
+    const filled = [];
+    if (ch.level) filled.push('等级');
+    if (ch.renXiu && Object.keys(ch.renXiu).length) filled.push('人物修炼');
+    if (ch.chongXiu && Object.keys(ch.chongXiu).length) filled.push('召唤兽修炼');
+    if (ch.qianYuanDan !== undefined) filled.push('乾元丹');
+    if (ch.jiYuan !== undefined) filled.push('机缘');
+    if (ch.shenQiPoints !== undefined) filled.push('神器积分');
+    if (ch.potentialFruitCount !== undefined) filled.push('潜能果');
+    if (ch.totalExpYi !== undefined) filled.push('总经验');
+    if (ch.huaShengLayers !== undefined) filled.push('化圣层数');
+    const warnings = [];
+    if (!ch.skills || !ch.skills.length) warnings.push('师门技能等级需手动填写（页面拆分数据无法离线获取）');
+    if (ch.qiangZhuang === undefined) warnings.push('强壮 / 神速需手动填写');
+    return { character: ch, warnings, filled, raw };
+  }
+
+  /** 把页面 RoleInfoParser 的输出映射为统一 character（保留完整版能力，供未来接入） */
+  function mapCbgData(d) {
+    const ch = {};
+    const raw = d.raw || {};
+    const basic = d.basic_info || {};
+    const num = (v) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') {
+        const m = v.match(/([\d.]+)/);
+        if (m) return parseFloat(m[1]);
+      }
+      return undefined;
+    };
+    ch.level = raw.iGrade !== undefined ? raw.iGrade : basic.role_level;
+    ch.sect = basic.school || '';
+    ch.nickname = basic.nickname || raw.cName || '';
+    ch.totalExpYi = num(raw.sum_exp !== undefined ? raw.sum_exp : basic.sum_exp);
+    ch.huaShengLayers = raw.i3FlyLv !== undefined ? raw.i3FlyLv : 0;
+    ch.jiYuan = raw.jiyuan !== undefined ? raw.jiyuan : (raw.ji_yuan !== undefined ? raw.ji_yuan : basic.ji_yuan);
+    ch.qianYuanDan = raw.TA_iAllNewPoint !== undefined ? raw.TA_iAllNewPoint
+      : (basic.qian_yuan_dan && basic.qian_yuan_dan.new_value !== undefined ? basic.qian_yuan_dan.new_value : undefined);
+    ch.potentialFruitCount = raw.qian_neng_guo !== undefined ? raw.qian_neng_guo : (basic.qian_neng_guo !== undefined ? num(basic.qian_neng_guo) : undefined);
+    ch.shenQiPoints = raw.shenqi_score !== undefined ? raw.shenqi_score : basic.shenqi_score;
+    ch.renXiu = { gong: raw.iExptSki1, fang: raw.iExptSki2, fa: raw.iExptSki3, kang: raw.iExptSki4 };
+    ch.shouShu = raw.iExptSki5;
+    ch.chongXiu = { gong: raw.iBeastSki1, fang: raw.iBeastSki2, fa: raw.iBeastSki3, kang: raw.iBeastSki4 };
+
+    const schoolSkills = ((d.role_skill || {}).school_skill || [])
+      .slice().sort((a, b) => (a.skill_pos || 0) - (b.skill_pos || 0));
+    ch.skills = schoolSkills.slice(0, 7).map((s) => s.skill_grade);
+    ch.skillNames = schoolSkills.slice(0, 7).map((s) => s.name || s.skill_name || '');
+
+    const life = (d.role_skill || {}).life_skill || [];
+    const findLife = (kw) => {
+      const hit = life.find((s) => String(s.name || '').includes(kw));
+      return hit ? hit.skill_grade : undefined;
+    };
+    ch.qiangZhuang = findLife('强壮');
+    ch.shenSu = findLife('神速');
+
+    const allEq = [...(d.using_equips || []), ...(d.not_using_equips || [])];
+    const eqName = (e) => stripColor(e.desc).slice(0, 80) || stripColor(e.name) || '装备';
+    ch.equipments = allEq.filter((e) => e.pos >= 1 && e.pos <= 6).map((e) => ({ name: eqName(e), tags: [] }));
+    ch.lingshi = allEq.filter((e) => e.pos >= 187 && e.pos <= 191).map((e) => ({ name: eqName(e), tags: [] }));
+    const others = allEq.filter((e) => !(e.pos >= 1 && e.pos <= 6) && !(e.pos >= 187 && e.pos <= 191));
+    ch.equipments = ch.equipments.concat(others.slice(0, 20).map((e) => ({ name: eqName(e), tags: [] })));
+
+    ch.pets = (Array.isArray(d.pet_info) ? d.pet_info : []).filter((e) => e && typeof e === 'object').map((e) => {
+      const sc = countSkills(e);
+      return { name: stripColor(e.pet_name || e.name || '').slice(0, 40) || '召唤兽', skillCount: sc || 0, tags: [] };
+    });
+    ch.children = (Array.isArray(d.child_info) ? d.child_info : []).map((e) => ({
+      name: stripColor(e.pet_name || e.name || '').slice(0, 40) || '孩子',
+      skillCount: countSkills(e) || 0,
+      tags: [],
+    }));
+    ch.mounts = (d.rider_info || []).map((r) => ({ growth: Number(r.exgrow || r.grow) || 0, name: r.type_name || '' }));
+
+    const jinyiAll = [];
+    for (const g of (d.new_clothes || [])) {
+      for (const c of (g && Array.isArray(g.list) ? g.list : [])) {
+        const n = stripColor(c.name || '').slice(0, 40);
+        if (n && !jinyiAll.some((x) => x.name === n)) jinyiAll.push({ name: n, tags: [] });
+      }
+    }
+    ch.jinyi = jinyiAll.length ? jinyiAll
+      : (d.clothes || []).map((c) => ({ name: stripColor(c.cName || c.name || ''), tags: [] })).filter((x) => x.name);
+    ch.xiangrui = (d.xiangrui || []).map((x) => ({ name: stripColor(x.cName || x.name || ''), tags: x.skill_name ? [x.skill_name] : [] }));
+    ch.fabaos = (d.using_fabao || []).map((f) => stripColor(f.cName || f.name || f.desc).slice(0, 40)).filter(Boolean);
+    return ch;
+  }
+
+  MHY.cbg = { decodeDesc, lpcToJs, lpcToObject, extractDesc, importFromText, mapCbgData, mapRaw, normalizeRaw, stripColor };
+  if (typeof module === 'object' && module.exports) module.exports = MHY.cbg;
+})(typeof self !== 'undefined' ? self : this);

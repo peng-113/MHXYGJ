@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a1a">
+<title>梦幻西游 · 藏宝阁账号估值</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚖️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <span>藏宝阁账号估值</span>
+  </div>
+  <div class="actions">
+    <button class="btn ghost" id="btn-import">导入</button>
+    <button class="btn primary" id="btn-export">导出</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-tab="basic">基础</button>
+  <button class="tab" data-tab="renxiu">人修</button>
+  <button class="tab" data-tab="chongxiu">宠修</button>
+  <button class="tab" data-tab="skill">技能</button>
+  <button class="tab" data-tab="base">底子</button>
+  <button class="tab" data-tab="tier">装备宝宝</button>
+  <button class="tab" data-tab="param">参数</button>
+</nav>
+
+<main id="main">
+
+  <section class="page active" id="page-basic">
+    <div class="card">
+      <h2>角色信息</h2>
+      <div class="grid">
+        <label class="field"><span>等级</span><input type="number" inputmode="numeric" data-num="character.level" min="1" max="175" placeholder="175"></label>
+        <label class="field"><span>门派</span><input type="text" data-text="character.sect" placeholder="如 阴曹地府"></label>
+        <label class="field"><span>总经验（亿）</span><input type="number" inputmode="decimal" data-num="character.totalExpYi" step="1" placeholder="774"></label>
+        <label class="field"><span>化圣层数</span><input type="number" inputmode="numeric" data-num="character.huaShengLayers" min="0" max="9" placeholder="0"></label>
+        <label class="field"><span>机缘（点）</span><input type="number" inputmode="numeric" data-num="character.jiYuan" min="0" max="57" placeholder="57"></label>
+        <label class="field"><span>乾元丹（颗）</span><input type="number" inputmode="numeric" data-num="character.qianYuanDan" min="0" max="9" placeholder="9"></label>
+        <label class="field"><span>潜能果（个）</span><input type="number" inputmode="numeric" data-num="character.potentialFruitCount" min="0" max="200" placeholder="200"></label>
+        <label class="field"><span>神器积分</span><input type="number" inputmode="numeric" data-num="character.shenQiPoints" min="0" placeholder="8"></label>
+      </div>
+      <p class="hint">留空的项目会按“缺失”处理并在下方提示，不影响其他项计算。</p>
+    </div>
+    <div class="card">
+      <h2>快捷操作</h2>
+      <div class="row">
+        <button class="btn ghost" id="btn-demo">载入示例</button>
+        <button class="btn ghost" id="btn-clear">清空全部</button>
+      </div>
+      <p class="hint">数据只保存在本机浏览器（localStorage），不会上传到任何服务器。</p>
+    </div>
+  </section>
+
+  <section class="page" id="page-renxiu">
+    <div class="card">
+      <h2>人物修炼 <small>0–25 级</small></h2>
+      <div class="grid">
+        <label class="field"><span>攻击修炼</span><input type="number" inputmode="numeric" data-num="character.renXiu.gong" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>防御修炼</span><input type="number" inputmode="numeric" data-num="character.renXiu.fang" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>法术修炼</span><input type="number" inputmode="numeric" data-num="character.renXiu.fa" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>抗法修炼</span><input type="number" inputmode="numeric" data-num="character.renXiu.kang" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>猎术（仅展示）</span><input type="number" inputmode="numeric" data-num="character.shouShu" min="0" max="25" placeholder="0"></label>
+      </div>
+      <p class="hint">按官方逐级消耗表折算：攻/法修 0→25 累计 20,325 万两，防/抗修 13,550 万两。</p>
+    </div>
+  </section>
+
+  <section class="page" id="page-chongxiu">
+    <div class="card">
+      <h2>召唤兽修炼 <small>0–25 级</small></h2>
+      <div class="grid">
+        <label class="field"><span>攻击控制力</span><input type="number" inputmode="numeric" data-num="character.chongXiu.gong" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>防御控制力</span><input type="number" inputmode="numeric" data-num="character.chongXiu.fang" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>法术控制力</span><input type="number" inputmode="numeric" data-num="character.chongXiu.fa" min="0" max="25" placeholder="25"></label>
+        <label class="field"><span>抗法控制力</span><input type="number" inputmode="numeric" data-num="character.chongXiu.kang" min="0" max="25" placeholder="25"></label>
+      </div>
+      <p class="hint">按修炼果折算：0→25 共需 67,750 万经验 ≈ 451 个修炼果。</p>
+    </div>
+  </section>
+
+  <section class="page" id="page-skill">
+    <div class="card">
+      <h2>师门技能 <small>0–180 级</small></h2>
+      <div class="grid" id="skill-grid"></div>
+      <p class="hint">0→180 累计 21,292 万两；156→180 每项 15,691 万两。</p>
+    </div>
+  </section>
+
+  <section class="page" id="page-base">
+    <div class="card">
+      <h2>生活技能</h2>
+      <div class="grid">
+        <label class="field"><span>强壮</span><input type="number" inputmode="numeric" data-num="character.qiangZhuang" min="0" max="60" placeholder="0"></label>
+        <label class="field"><span>神速</span><input type="number" inputmode="numeric" data-num="character.shenSu" min="0" max="60" placeholder="0"></label>
+      </div>
+      <p class="hint">0→45 累计 25,560 万两；0→60 累计 90,305 万两。</p>
+    </div>
+    <div class="card">
+      <h2>坐骑 <small>成长值</small></h2>
+      <div id="mount-list" class="mount-list"></div>
+      <button class="btn ghost block" id="btn-add-mount">+ 添加坐骑</button>
+      <p class="hint">成长 &gt; 2.3 加 100，2.2–2.3 加 50（可在参数页调整）。</p>
+    </div>
+    <div class="card">
+      <h2>外观溢价</h2>
+      <label class="field"><span>全局加价（元）</span><input type="number" inputmode="numeric" data-param="appearanceBonus" min="0" placeholder="0"></label>
+    </div>
+  </section>
+
+  <section class="page" id="page-tier">
+    <div class="card">
+      <h2>装备档位</h2>
+      <div class="counters" id="counter-equip"></div>
+    </div>
+    <div class="card">
+      <h2>灵饰档位</h2>
+      <div class="counters" id="counter-lingshi"></div>
+    </div>
+    <div class="card">
+      <h2>召唤兽档位</h2>
+      <div class="counters" id="counter-pet"></div>
+    </div>
+    <div class="card">
+      <h2>孩子档位</h2>
+      <div class="counters" id="counter-child"></div>
+    </div>
+    <p class="hint" style="padding:0 4px 12px">档位价格在“参数”页可改；不确定的归入最低档。</p>
+  </section>
+
+  <section class="page" id="page-param">
+    <div class="card">
+      <h2>金价与折现</h2>
+      <div class="grid">
+        <label class="field"><span>金价（元/万两）</span><input type="number" inputmode="decimal" data-param="goldRate" step="0.0001" placeholder="0.0716"></label>
+        <label class="field"><span>人修折现</span><input type="number" inputmode="decimal" data-param="discounts.renXiu" step="0.05" min="0" max="1"></label>
+        <label class="field"><span>宠修折现</span><input type="number" inputmode="decimal" data-param="discounts.chongXiu" step="0.05" min="0" max="1"></label>
+        <label class="field"><span>技能折现</span><input type="number" inputmode="decimal" data-param="discounts.skill" step="0.05" min="0" max="1"></label>
+        <label class="field"><span>乾元丹折现</span><input type="number" inputmode="decimal" data-param="discounts.qianYuanDan" step="0.05" min="0" max="1"></label>
+        <label class="field"><span>强壮神速折现</span><input type="number" inputmode="decimal" data-param="discounts.strong" step="0.05" min="0" max="1"></label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>固定金额</h2>
+      <div class="grid">
+        <label class="field"><span>潜能果单价（元）</span><input type="number" inputmode="numeric" data-param="potentialFruitUnit" min="0"></label>
+        <label class="field"><span>化圣每层（元）</span><input type="number" inputmode="numeric" data-param="huaShengUnit" min="0"></label>
+        <label class="field"><span>经验阈值1（亿）</span><input type="number" inputmode="numeric" data-param="expBonus.threshold1"></label>
+        <label class="field"><span>奖金1（元）</span><input type="number" inputmode="numeric" data-param="expBonus.bonus1"></label>
+        <label class="field"><span>经验阈值2（亿）</span><input type="number" inputmode="numeric" data-param="expBonus.threshold2"></label>
+        <label class="field"><span>奖金2（元）</span><input type="number" inputmode="numeric" data-param="expBonus.bonus2"></label>
+        <label class="field"><span>神器合格线（分）</span><input type="number" inputmode="numeric" data-param="shenQi.qualifiedPoints"></label>
+        <label class="field"><span>神器合格价（元）</span><input type="number" inputmode="numeric" data-param="shenQi.qualifiedPrice"></label>
+        <label class="field"><span>神器极限线（分）</span><input type="number" inputmode="numeric" data-param="shenQi.extremePoints"></label>
+        <label class="field"><span>神器极限价（元）</span><input type="number" inputmode="numeric" data-param="shenQi.extremePrice"></label>
+        <label class="field"><span>机缘满点（点）</span><input type="number" inputmode="numeric" data-param="jiYuan.full"></label>
+        <label class="field"><span>机缘满分奖金（元）</span><input type="number" inputmode="numeric" data-param="jiYuan.fullBonus"></label>
+        <label class="field"><span>机缘每少1点扣（元）</span><input type="number" inputmode="numeric" data-param="jiYuan.perPoint"></label>
+        <label class="field"><span>坐骑高档线</span><input type="number" inputmode="decimal" step="0.01" data-param="mountBonus.t2"></label>
+        <label class="field"><span>坐骑高档奖金</span><input type="number" inputmode="numeric" data-param="mountBonus.b2"></label>
+        <label class="field"><span>坐骑低档线</span><input type="number" inputmode="decimal" step="0.01" data-param="mountBonus.t1"></label>
+        <label class="field"><span>坐骑低档奖金</span><input type="number" inputmode="numeric" data-param="mountBonus.b1"></label>
+        <label class="field"><span>修炼果单价（万两）</span><input type="number" inputmode="numeric" data-param="fruitPrice"></label>
+        <label class="field"><span>每果经验（万）</span><input type="number" inputmode="numeric" data-param="fruitExp"></label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>档位价格（元）</h2>
+      <div class="grid" id="price-grid"></div>
+    </div>
+    <div class="card">
+      <h2>恢复</h2>
+      <button class="btn ghost block" id="btn-reset-params">恢复默认参数</button>
+      <p class="hint">参数与录入内容都保存在本机，换设备需重新填写或重新导入。</p>
+    </div>
+  </section>
+
+  <section class="page" id="page-result">
+    <div class="card">
+      <h2>估值明细</h2>
+      <div id="result-list" class="result-list"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="summary">
+  <div class="sum-left">
+    <div class="sum-label">估值合计</div>
+    <div class="sum-value" id="total">¥0</div>
+  </div>
+  <div class="sum-right">
+    <div class="sum-meta" id="missing-count">—</div>
+    <button class="btn ghost small" id="btn-detail">明细</button>
+  </div>
+</footer>
+
+<div class="modal" id="import-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>从藏宝阁页面导入</h2>
+      <button class="btn ghost small" id="btn-close-import">关闭</button>
+    </div>
+    <p class="hint">
+      电脑上打开账号详情页 → 右键“查看网页源代码”（或 Ctrl+U）→ 全选复制 → 粘贴到下方。<br>
+      也可以直接粘贴页面里 <code>equip_desc_value</code> 那段以 <code>@</code> 开头的密文。<br>
+      解码全部在你的浏览器内完成，不上传任何数据。
+    </p>
+    <textarea id="import-text" placeholder="粘贴页面源码，或 @盐@base64 密文…"></textarea>
+    <div class="row">
+      <button class="btn primary" id="btn-do-import">解析并填入</button>
+      <button class="btn ghost" id="btn-clear-import">清空</button>
+    </div>
+    <div id="import-msg" class="msg"></div>
+  </div>
+</div>
+
+<script src="js/config-data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/cbg.js"></script>
+<script src="vendor/exceljs.min.js"></script>
+<script src="js/export.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
