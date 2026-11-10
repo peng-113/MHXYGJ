@@ -1,6 +1,6 @@
 {
-  "rev": 1794293328970,
-  "updatedAt": "2026-11-10T06:48:48.970Z",
+  "rev": 1794294950981,
+  "updatedAt": "2026-11-10T07:15:50.981Z",
   "params": {
     "_comment": "全局基础参数与固定金额规则。所有数值均可在前端界面调整并保存；标注[估算]的表为内置插值数据，请按游戏内实际数据核对后替换。",
     "goldRate": 0.0716,
@@ -39,13 +39,6 @@
       "b2": 0
     },
     "_mountBonus_comment": "坐骑成长加价：>t2 加 b2 元/只，>t1 加 b1 元/只，每只独立判定可叠加",
-    "shenQi": {
-      "qualifiedPoints": 0,
-      "qualifiedPrice": 0,
-      "extremePoints": 0,
-      "extremePrice": 0
-    },
-    "_shenQi_comment": "神器：积分 >= extremePoints 按极限档，>= qualifiedPoints 按合格档，否则不计价",
     "jiYuan": {
       "full": 69,
       "fullBonus": 500,
@@ -53,7 +46,15 @@
     },
     "_jiYuan_comment": "机缘：满 full 点加 fullBonus 元，每少 1 点扣 perPoint 元（下限 0）",
     "appearanceBonus": 0,
-    "_appearanceBonus_comment": "外观溢价：全局手动输入，元，默认 0"
+    "_appearanceBonus_comment": "外观溢价：全局手动输入，元，默认 0",
+    "effectBonus": 50,
+    "_effectBonus_comment": "施法/攻击特效：总数 >= 1 个时加此金额（元），填 0 表示不计价",
+    "house": {
+      "type": "豪宅",
+      "fengShui": "紫气东来",
+      "price": 20
+    },
+    "_house_comment": "居住房屋：房屋等级含 type 且风水含 fengShui 时加 price 元，其余房屋为 0"
   },
   "tiers": {
     "_comment": "档位判定规则。装备/灵饰按关键词从上到下首次命中即归档；召唤兽/孩子按技能数阈值归档，特殊技能直接升到 S 档。所有关键词、阈值、单价均可在前端调整并保存。",
