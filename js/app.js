@@ -26,7 +26,137 @@
     tiers: clone(CFG.tiers),
     tables: CFG.tables,
     result: null,
+    cloudRev: 0,
+    cloud: null,
   };
+
+  // ---------- 云端参数（站点同源 params.json）----------
+  const CLOUD_FILE = 'params.json';
+  const TOKEN_KEY = 'mhy-gh-token';
+
+  /** 浅层对象深合并：云端值覆盖默认值，默认值补齐云端缺失的键 */
+  function mergeDeep(base, over) {
+    if (!over || typeof over !== 'object' || Array.isArray(over)) return base;
+    const out = Object.assign({}, base);
+    Object.keys(over).forEach((k) => {
+      const b = base == null ? undefined : base[k];
+      const o = over[k];
+      if (o && typeof o === 'object' && !Array.isArray(o) && b && typeof b === 'object' && !Array.isArray(b)) {
+        out[k] = mergeDeep(b, o);
+      } else if (o !== undefined) {
+        out[k] = o;
+      }
+    });
+    return out;
+  }
+
+  /** 自动识别 GitHub 仓库（owner/repo）；非 github.io 时用默认值 */
+  function cloudRepo() {
+    const host = location.hostname || '';
+    if (/\.github\.io$/i.test(host)) {
+      const owner = host.split('.')[0];
+      const repo = (location.pathname.split('/').filter(Boolean)[0] || '').replace(/\.git$/, '');
+      if (owner && repo) return owner + '/' + repo;
+    }
+    return 'peng-113/MHXYGJ';
+  }
+
+  function b64utf8(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    return btoa(bin);
+  }
+
+  function setCloudStatus(txt, cls) {
+    const el = document.getElementById('cloud-status');
+    if (!el) return;
+    el.textContent = txt;
+    el.className = 'hint cloud-status' + (cls ? ' ' + cls : '');
+  }
+
+  /** 拉取云端参数；rev 比本地新（或 force）时采用 */
+  async function pullCloud(force) {
+    const res = await fetch(CLOUD_FILE + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    const rev = Number(d.rev) || 0;
+    state.cloud = { rev, updatedAt: d.updatedAt || '' };
+    const localRev = Number(state.cloudRev) || 0;
+    if (force || rev > localRev) {
+      state.params = mergeDeep(clone(CFG.params), d.params || {});
+      state.tiers = mergeDeep(clone(CFG.tiers), d.tiers || {});
+      state.cloudRev = rev;
+      syncInputs();
+      renderCounters();
+      renderPriceGrid();
+      recalc();
+      save();
+      return { adopted: true, rev };
+    }
+    return { adopted: false, rev };
+  }
+
+  async function refreshCloudUI(force) {
+    try {
+      const r = await pullCloud(!!force);
+      const when = state.cloud && state.cloud.updatedAt
+        ? new Date(state.cloud.updatedAt).toLocaleString('zh-CN', { hour12: false })
+        : '';
+      setCloudStatus(r.adopted
+        ? `已采用云端参数（版本 ${r.rev}${when ? '，更新于 ' + when : ''}）。换设备/换浏览器打开会自动同步。`
+        : `参数已是最新（云端版本 ${r.rev}${when ? '，更新于 ' + when : ''}）。`, 'ok');
+    } catch (e) {
+      setCloudStatus('云端参数读取失败（' + e.message + '），当前使用本机参数。', 'err');
+    }
+  }
+
+  /** 把当前参数写回云端 params.json（需 GitHub Token，仅本机保存） */
+  async function pushCloud() {
+    const input = document.getElementById('cloud-token');
+    const msg = document.getElementById('cloud-push-msg');
+    const token = ((input && input.value) || localStorage.getItem(TOKEN_KEY) || '').trim();
+    if (!token) throw new Error('请先填入 GitHub Token');
+    const repo = cloudRepo();
+    const api = `https://api.github.com/repos/${repo}/contents/${CLOUD_FILE}`;
+    const headers = {
+      Authorization: 'Bearer ' + token,
+      Accept: 'application/vnd.github+json',
+    };
+    const body = {
+      rev: Date.now(),
+      updatedAt: new Date().toISOString(),
+      params: state.params,
+      tiers: state.tiers,
+    };
+    const content = b64utf8(JSON.stringify(body, null, 2) + '\n');
+
+    const g = await fetch(api + '?ref=main&t=' + Date.now(), { headers });
+    let sha;
+    if (g.ok) {
+      sha = (await g.json()).sha;
+    } else if (g.status !== 404) {
+      throw new Error('读取云端文件失败 HTTP ' + g.status + (g.status === 401 || g.status === 403 ? '（Token 无效或权限不足）' : ''));
+    }
+
+    const r = await fetch(api, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ message: '更新估值参数（网页保存）', content, sha, branch: 'main' }),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error('保存失败 HTTP ' + r.status + '：' + t.slice(0, 140));
+    }
+    localStorage.setItem(TOKEN_KEY, token);
+    state.cloudRev = body.rev;
+    state.cloud = { rev: body.rev, updatedAt: body.updatedAt };
+    save();
+    if (msg) msg.textContent = '已提交到 GitHub（版本 ' + body.rev + '）。其他设备约 1 分钟后刷新即可拿到新参数。';
+  }
 
   // ---------- 路径读写 ----------
   function getPath(obj, path) {
@@ -64,6 +194,7 @@
         counts: state.counts,
         params: state.params,
         tiers: state.tiers,
+        cloudRev: state.cloudRev,
         importNote: note && !note.hidden ? note.textContent : '',
       }));
     } catch (e) { /* 隐私模式下忽略 */ }
@@ -77,6 +208,7 @@
       if (d.counts) state.counts = Object.assign({ equip: {}, lingshi: {}, pet: {}, child: {} }, d.counts);
       if (d.params) state.params = d.params;
       if (d.tiers) state.tiers = d.tiers;
+      if (d.cloudRev) state.cloudRev = Number(d.cloudRev) || 0;
       if (d.importNote) {
         const note = document.getElementById('import-note');
         if (note) { note.textContent = d.importNote; note.hidden = false; }
@@ -442,6 +574,48 @@
     return true;
   }
 
+  // ---------- 云端同步按钮 ----------
+  function bindCloud() {
+    const edit = document.getElementById('btn-cloud-edit');
+    if (edit) edit.href = `https://github.com/${cloudRepo()}/edit/main/${CLOUD_FILE}`;
+
+    const pull = document.getElementById('btn-cloud-pull');
+    if (pull) {
+      pull.onclick = async () => {
+        pull.disabled = true;
+        setCloudStatus('正在从云端拉取参数…');
+        try { await refreshCloudUI(true); } catch (e) { setCloudStatus('拉取失败：' + e.message, 'err'); }
+        pull.disabled = false;
+      };
+    }
+
+    const push = document.getElementById('btn-cloud-push');
+    const msg = document.getElementById('cloud-push-msg');
+    if (push) {
+      push.onclick = async () => {
+        push.disabled = true;
+        if (msg) msg.textContent = '正在提交到 GitHub…';
+        try {
+          await pushCloud();
+          if (msg) msg.className = 'hint ok';
+        } catch (e) {
+          if (msg) { msg.className = 'hint err'; msg.textContent = '保存失败：' + e.message; }
+        }
+        push.disabled = false;
+      };
+    }
+
+    const forget = document.getElementById('btn-cloud-forget');
+    if (forget) {
+      forget.onclick = () => {
+        localStorage.removeItem(TOKEN_KEY);
+        const input = document.getElementById('cloud-token');
+        if (input) input.value = '';
+        if (msg) { msg.className = 'hint'; msg.textContent = '已清除本机保存的 Token。'; }
+      };
+    }
+  }
+
   function bindImport() {
     const modal = document.getElementById('import-modal');
     const msg = document.getElementById('import-msg');
@@ -519,11 +693,12 @@
       state.character.mounts.push({ growth: '' });
       renderMounts(); save();
     };
-    document.getElementById('btn-reset-params').onclick = () => {
-      if (!confirm('恢复默认参数（金价、折现、档位价格等）？')) return;
+    document.getElementById('btn-reset-params').onclick = async () => {
+      if (!confirm('恢复参数为默认值？（若云端参数可读，会采用云端版本）')) return;
       state.params = clone(CFG.params);
       state.tiers = clone(CFG.tiers);
-      syncInputs(); renderCounters(); renderPriceGrid(); recalc(); save();
+      syncInputs(); renderCounters(); renderPriceGrid(); recalc();
+      try { await pullCloud(true); } catch (e) { save(); }
     };
   }
 
@@ -555,6 +730,7 @@
   bindImport();
   bindQuick();
   bindExport();
+  bindCloud();
   // 书签小工具带参进来：先导入，再渲染初始态（确保覆盖本地缓存）
   const fromBookmark = importFromHash();
   syncInputs();
@@ -562,4 +738,5 @@
   window.addEventListener('resize', syncFooterHeight);
   window.addEventListener('orientationchange', syncFooterHeight);
   recalc();
+  refreshCloudUI();
 })();

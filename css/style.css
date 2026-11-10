@@ -407,6 +407,30 @@ body.drawer-open .summary { border-top-color: transparent; }
 .msg.ok { color: var(--ok); }
 .msg.err { color: var(--warn); }
 
+/* ---------- 云端同步 ---------- */
+.cloud-status { margin: 0 0 10px; }
+.hint.ok { color: var(--ok); }
+.hint.err { color: var(--warn); }
+.cloud-adv { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.cloud-adv summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 4px 0;
+  list-style: none;
+}
+.cloud-adv summary::before { content: '▸ '; }
+.cloud-adv[open] summary::before { content: '▾ '; }
+.cloud-adv input[type="password"] {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+
 /* ---------- 桌面稍宽 ---------- */
 @media (min-width: 720px) {
   .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

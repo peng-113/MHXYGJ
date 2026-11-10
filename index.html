@@ -177,6 +177,24 @@
       <div class="grid" id="price-grid"></div>
     </div>
     <div class="card">
+      <h2>参数云端同步</h2>
+      <p class="hint" id="cloud-status">正在检查云端参数…</p>
+      <div class="row">
+        <button class="btn ghost small" id="btn-cloud-pull">立即拉取云端</button>
+        <a class="btn ghost small" id="btn-cloud-edit" target="_blank" rel="noopener">在 GitHub 上直接改</a>
+      </div>
+      <details class="cloud-adv">
+        <summary>把当前参数保存到云端（需 GitHub Token，只需配置一次）</summary>
+        <p class="hint">Token 只存在<b>本机这个浏览器</b>里，用途仅限写入本仓库的 <code>params.json</code>。建议用 fine-grained token，只选这一个仓库、权限只给 <b>Contents: Read and write</b>，并设置过期时间。保存后其他设备约 1 分钟刷新即同步。</p>
+        <input type="password" id="cloud-token" placeholder="github_pat_… 或 ghp_…" autocomplete="off">
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary small" id="btn-cloud-push">保存到云端</button>
+          <button class="btn ghost small" id="btn-cloud-forget">清除已存 Token</button>
+        </div>
+        <p class="hint" id="cloud-push-msg"></p>
+      </details>
+    </div>
+    <div class="card">
       <h2>恢复</h2>
       <button class="btn ghost block" id="btn-reset-params">恢复默认参数</button>
       <p class="hint">参数与录入内容都保存在本机，换设备需重新填写或重新导入。</p>

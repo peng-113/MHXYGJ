@@ -1,0 +1,193 @@
+{
+  "rev": 1,
+  "updatedAt": "2026-11-10T03:53:47.331Z",
+  "params": {
+    "_comment": "全局基础参数与固定金额规则。所有数值均可在前端界面调整并保存；标注[估算]的表为内置插值数据，请按游戏内实际数据核对后替换。",
+    "goldRate": 0.0716,
+    "_goldRate_comment": "金价比例：元/万两，所有游戏币消耗折算人民币的基础比例",
+    "fruitPrice": 85,
+    "_fruitPrice_comment": "修炼果单价：万两/个",
+    "fruitExp": 150,
+    "_fruitExp_comment": "修炼果经验：点/个（官方固定值）",
+    "renXiuTarget": 25,
+    "chongXiuTarget": 25,
+    "skillTarget": 180,
+    "discounts": {
+      "renXiu": 1,
+      "chongXiu": 1,
+      "skill": 1,
+      "qianYuanDan": 1,
+      "strong": 1
+    },
+    "_discounts_comment": "折现比例：各类成本项独立配置，填 0.8 表示消耗打 8 折估值",
+    "potentialFruitUnit": 50,
+    "_potentialFruitUnit_comment": "潜能果单价：元/个（人民币直付），填 0 表示不计价",
+    "huaShengUnit": 300,
+    "_huaShengUnit_comment": "化圣单价：元/层（人民币直付），填 0 表示不计价",
+    "expBonus": {
+      "threshold1": 700,
+      "bonus1": 1000,
+      "threshold2": 800,
+      "bonus2": 2000,
+      "stack": true
+    },
+    "_expBonus_comment": "经验底子：单位亿。超过 threshold1 加 bonus1，超过 threshold2 加 bonus2；stack=true 表示两项叠加",
+    "mountBonus": {
+      "t1": 2.2,
+      "b1": 50,
+      "t2": 2.3,
+      "b2": 100
+    },
+    "_mountBonus_comment": "坐骑成长加价：>t2 加 b2 元/只，>t1 加 b1 元/只，每只独立判定可叠加",
+    "shenQi": {
+      "qualifiedPoints": 8,
+      "qualifiedPrice": 1500,
+      "extremePoints": 12,
+      "extremePrice": 3000
+    },
+    "_shenQi_comment": "神器：积分 >= extremePoints 按极限档，>= qualifiedPoints 按合格档，否则不计价",
+    "jiYuan": {
+      "full": 57,
+      "fullBonus": 500,
+      "perPoint": 20
+    },
+    "_jiYuan_comment": "机缘：满 full 点加 fullBonus 元，每少 1 点扣 perPoint 元（下限 0）",
+    "appearanceBonus": 0,
+    "_appearanceBonus_comment": "外观溢价：全局手动输入，元，默认 0"
+  },
+  "tiers": {
+    "_comment": "档位判定规则。装备/灵饰按关键词从上到下首次命中即归档；召唤兽/孩子按技能数阈值归档，特殊技能直接升到 S 档。所有关键词、阈值、单价均可在前端调整并保存。",
+    "equipment": [
+      {
+        "tier": "T0",
+        "keywords": [
+          "无级别"
+        ],
+        "price": 8000
+      },
+      {
+        "tier": "T1",
+        "keywords": [
+          "晶清",
+          "罗汉",
+          "慈航",
+          "笑里",
+          "凝神",
+          "大特技"
+        ],
+        "price": 1200
+      },
+      {
+        "tier": "T2",
+        "keywords": [
+          "特技",
+          "简易",
+          "永不磨损"
+        ],
+        "price": 500
+      },
+      {
+        "tier": "T3",
+        "keywords": [
+          "坚固",
+          "神农",
+          "再生",
+          "专注",
+          "遗迹"
+        ],
+        "price": 200
+      },
+      {
+        "tier": "T4",
+        "keywords": [],
+        "price": 0
+      }
+    ],
+    "lingshi": [
+      {
+        "tier": "T1",
+        "keywords": [
+          "超级简易",
+          "超级",
+          "伤害+额外"
+        ],
+        "price": 1500
+      },
+      {
+        "tier": "T2",
+        "keywords": [
+          "简易",
+          "三属性同",
+          "上限"
+        ],
+        "price": 400
+      },
+      {
+        "tier": "T3",
+        "keywords": [
+          "特效"
+        ],
+        "price": 150
+      },
+      {
+        "tier": "T4",
+        "keywords": [],
+        "price": 0
+      }
+    ],
+    "petTiers": [
+      {
+        "tier": "S",
+        "minSkills": 10,
+        "price": 4000
+      },
+      {
+        "tier": "A",
+        "minSkills": 8,
+        "price": 1500
+      },
+      {
+        "tier": "B",
+        "minSkills": 6,
+        "price": 400
+      },
+      {
+        "tier": "C",
+        "minSkills": 0,
+        "price": 0
+      }
+    ],
+    "childTiers": [
+      {
+        "tier": "S",
+        "minSkills": 8,
+        "price": 3000
+      },
+      {
+        "tier": "A",
+        "minSkills": 6,
+        "price": 1200
+      },
+      {
+        "tier": "B",
+        "minSkills": 4,
+        "price": 400
+      },
+      {
+        "tier": "C",
+        "minSkills": 0,
+        "price": 0
+      }
+    ],
+    "specialSkillKeywords": [
+      "须弥",
+      "善恶",
+      "浮云",
+      "神马",
+      "力破",
+      "苍鸾",
+      "龙魂"
+    ],
+    "_specialSkillKeywords_comment": "召唤兽/孩子命中任一特殊技能关键词时直接归入 S 档"
+  }
+}
