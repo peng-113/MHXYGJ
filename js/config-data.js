@@ -38,13 +38,14 @@ window.MHY_DEFAULT_CONFIG = {
       "b2": 100
     },
     "_mountBonus_comment": "坐骑成长加价：>t2 加 b2 元/只，>t1 加 b1 元/只，每只独立判定可叠加",
-    "shenQi": {
-      "qualifiedPoints": 8,
-      "qualifiedPrice": 1500,
-      "extremePoints": 12,
-      "extremePrice": 3000
+    "effectBonus": 50,
+    "_effectBonus_comment": "施法/攻击特效：总数 >= 1 个时加此金额（元），填 0 表示不计价",
+    "house": {
+      "type": "豪宅",
+      "fengShui": "紫气东来",
+      "price": 20
     },
-    "_shenQi_comment": "神器：积分 >= extremePoints 按极限档，>= qualifiedPoints 按合格档，否则不计价",
+    "_house_comment": "居住房屋：房屋等级含 type 且风水含 fengShui 时加 price 元，其余房屋为 0",
     "jiYuan": {
       "full": 57,
       "fullBonus": 500,

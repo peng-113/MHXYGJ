@@ -236,16 +236,8 @@
       items.push({ category: '底子', name: '坐骑加成', method: '固定金额', basis: `${mountCount}只命中（>${mb.t2} 加${mb.b2} / >${mb.t1} 加${mb.b1}）`, discount: '-', value: fmt(mountBonus), status: 'ok' });
     }
 
-    // ---- 9. 神器 ----
-    const sq = character.shenQiPoints;
-    if (sq !== undefined && sq !== null && sq !== '') {
-      const sqc = params.shenQi;
-      let v = 0;
-      let basis = `${sq}积分，未达合格线（${sqc.qualifiedPoints}）`;
-      if (sq >= sqc.extremePoints) { v = sqc.extremePrice; basis = `${sq}积分，极限档`; }
-      else if (sq >= sqc.qualifiedPoints) { v = sqc.qualifiedPrice; basis = `${sq}积分，合格档`; }
-      items.push({ category: '底子', name: '神器', method: '固定金额', basis, discount: '-', value: fmt(v), status: 'ok' });
-    }
+    // ---- 9. 神器积分：已取消，不再统计也不再估价（字段仅保留展示用）----
+    // （原按积分档位加价，现改为仅在基础页展示/不参与合计）
 
     // ---- 10. 机缘 ----
     const jy = character.jiYuan;
@@ -346,7 +338,37 @@
       delete childCount[rule.tier];
     }
 
-    // ---- 13. 外观溢价 ----
+    // ---- 13. 施法/攻击特效（≥1 个即加固定金额）----
+    const txRaw = character.teXiaoCount;
+    const tx = Number(txRaw);
+    const txUnit = Number(params.effectBonus) || 0;
+    if (txRaw !== '' && txRaw !== undefined && txRaw !== null && isFinite(tx) && tx >= 1 && txUnit > 0) {
+      items.push({
+        category: '外观', name: '施法/攻击特效', method: '固定金额',
+        basis: `${tx}个（≥1，加${txUnit}元）`,
+        discount: '-', value: fmt(txUnit), status: 'ok',
+      });
+    }
+
+    // ---- 14. 居住房屋（豪宅 + 紫气东来）----
+    const houseType = String(character.houseType || '');
+    const houseFeng = String(character.houseFengShui || '');
+    if (houseType || houseFeng) {
+      const hc = params.house || {};
+      const typeHit = !hc.type || houseType.includes(hc.type);
+      const fengHit = !hc.fengShui || houseFeng.includes(hc.fengShui);
+      const hit = !!houseType && typeHit && fengHit;
+      const v = hit ? Number(hc.price) || 0 : 0;
+      if (v > 0) {
+        items.push({
+          category: '家园', name: '居住房屋', method: '固定金额',
+          basis: `${houseType}${houseFeng ? '·' + houseFeng : ''}（${hc.type}+${hc.fengShui}，加${v}元）`,
+          discount: '-', value: fmt(v), status: 'ok',
+        });
+      }
+    }
+
+    // ---- 15. 外观溢价 ----
     const ap = Number(params.appearanceBonus) || 0;
     if (ap > 0) {
       items.push({ category: '外观', name: '全局外观溢价', method: '手动输入', basis: '全局加价', discount: '-', value: fmt(ap), status: 'ok' });
@@ -365,9 +387,15 @@
     }
     const missing = items.filter((i) => i.status === 'missing').map((i) => i.name);
     const unclassified = items.filter((i) => i.status === 'unclassified').map((i) => i.name);
+    // 售价与折扣：折扣 = 售价 / 估值合计（<100% 表示比估价便宜）
+    const salePriceNum = Number(character.salePrice);
+    const salePrice = isFinite(salePriceNum) && salePriceNum > 0 ? salePriceNum : null;
+    const discount = salePrice && total > 0 ? salePrice / total : null;
     return {
       items,
       total: fmt(total),
+      salePrice,
+      discount,
       groups: {
         cost: fmt(groups.cost), tier: fmt(groups.tier),
         fixed: fmt(groups.fixed), appearance: fmt(groups.appearance),

@@ -8,7 +8,9 @@
   const emptyChar = () => ({
     level: '', sect: '', totalExpYi: '', huaShengLayers: '', jiYuan: '',
     jiYuanEat: '', jiYuanBase: '', jiYuanCap: '',
-    qianYuanDan: '', potentialFruitCount: '', shenQiPoints: '', shouShu: '',
+    qianYuanDan: '', potentialFruitCount: '', shouShu: '', salePrice: '',
+    jinYiCount: '', xiangRuiCount: '', teXiaoCount: '', cangJieLevel: '',
+    houseType: '', houseFengShui: '', houseDesc: '',
     renXiu: { gong: '', fang: '', fa: '', kang: '' },
     chongXiu: { gong: '', fang: '', fa: '', kang: '' },
     skills: ['', '', '', '', '', '', ''],
@@ -424,7 +426,11 @@
   // ---------- 估值 ----------
   function buildCharacter() {
     const c = clone(state.character);
-    const numeric = ['level', 'totalExpYi', 'huaShengLayers', 'jiYuan', 'qianYuanDan', 'potentialFruitCount', 'shenQiPoints', 'shouShu', 'qiangZhuang', 'shenSu', 'yuShouShu'];
+    const numeric = [
+      'level', 'totalExpYi', 'huaShengLayers', 'jiYuan', 'qianYuanDan', 'potentialFruitCount',
+      'shouShu', 'qiangZhuang', 'shenSu', 'yuShouShu', 'salePrice',
+      'jinYiCount', 'xiangRuiCount', 'teXiaoCount', 'cangJieLevel',
+    ];
     numeric.forEach((k) => { if (c[k] === '' || c[k] === null) c[k] = undefined; });
     ['renXiu', 'chongXiu'].forEach((g) => {
       if (!c[g]) return;
@@ -451,7 +457,26 @@
     document.getElementById('total').textContent = '¥' + fmtInt(res.total);
     const miss = res.missing.length;
     document.getElementById('missing-count').textContent = miss ? `${miss} 项待填` : '全部已填';
+    renderSaleLine(res);
     renderResult(res);
+  }
+
+  /** 底部：售价 + 折扣（折扣 = 售价 / 估值合计） */
+  function renderSaleLine(res) {
+    const el = document.getElementById('sum-price');
+    if (!el) return;
+    if (!res.salePrice) {
+      el.textContent = '售价 — · 折扣 —';
+      return;
+    }
+    const price = '¥' + fmtInt(res.salePrice);
+    if (res.discount === null || res.discount === undefined) {
+      el.innerHTML = `售价 <b>${price}</b> · 折扣 —`;
+      return;
+    }
+    const pct = (res.discount * 100).toFixed(1) + '%';
+    const cls = res.discount <= 1 ? 'dis-good' : 'dis-bad';
+    el.innerHTML = `售价 <b>${price}</b> · 折扣 <span class="${cls}">${pct}</span>`;
   }
 
   function renderResult(res) {
@@ -531,7 +556,7 @@
     return { summary, warnings: r.warnings };
   }
 
-  /** 书签小工具代码：在藏宝阁页面读取密文与机缘上限，带参打开本站 */
+  /** 书签小工具代码：在藏宝阁页面读取密文、机缘上限与售价，带参打开本站 */
   function buildBookmarklet() {
     const site = location.origin + location.pathname;
     const code = [
@@ -546,7 +571,16 @@
       "var t=(document.body.innerText||'').replace(/\\s+/g,' ');",
       "var mm=t.match(/月饼粽子机缘[：:]\\s*(\\d+)\\s*\\/\\s*(\\d+)/);",
       'if(mm){j=mm[1]+"/"+mm[2];}',
-      "var p=encodeURIComponent(JSON.stringify({d:d,j:j}));",
+      // 售价：优先页面内嵌数据里的 "price"（本商品），再退回带 ￥ 的价格元素
+      "var pr='';",
+      'try{var html=document.documentElement.outerHTML;',
+      "var p1=html.match(/\"price\"\\s*:\\s*['\"]?\\s*(\\d+(?:\\.\\d+)?)/);",
+      'if(p1&&Number(p1[1])>0){pr=p1[1];}}catch(e){}',
+      'if(!pr){try{var nodes=document.querySelectorAll("[class*=price]");',
+      "for(var i=0;i<nodes.length;i++){var tx=(nodes[i].textContent||'').replace(/\\s+/g,'');",
+      "var p2=tx.match(/[￥¥]([\\d,]+(?:\\.\\d+)?)/);",
+      "if(p2){pr=p2[1].replace(/,/g,'');break;}}}catch(e){}}",
+      "var p=encodeURIComponent(JSON.stringify({d:d,j:j,p:pr}));",
       "window.open('" + site + "#mhy='+p,'_blank');",
       '})()',
     ].join('');
@@ -562,7 +596,9 @@
       payload = JSON.parse(decodeURIComponent(m[1]));
     } catch (e) { return false; }
     if (!payload || !payload.d) return false;
-    const textVal = payload.d + (payload.j ? '\n月饼粽子机缘：' + payload.j : '');
+    const textVal = payload.d
+      + (payload.j ? '\n月饼粽子机缘：' + payload.j : '')
+      + (payload.p ? '\n售价：' + payload.p : '');
     try {
       applyImport(textVal);
     } catch (e) {
@@ -667,7 +703,9 @@
   // ---------- 快捷操作 ----------
   const DEMO = {
     level: 175, sect: '阴曹地府', totalExpYi: 774, huaShengLayers: 9, jiYuan: 1,
-    qianYuanDan: 9, potentialFruitCount: 200, shenQiPoints: 8, shouShu: 0,
+    qianYuanDan: 9, potentialFruitCount: 200, shouShu: 0, salePrice: 16999,
+    jinYiCount: 44, xiangRuiCount: 9, teXiaoCount: 1, cangJieLevel: 28,
+    houseType: '豪宅', houseFengShui: '紫气东来',
     renXiu: { gong: 1, fang: 25, fa: 25, kang: 25 },
     chongXiu: { gong: 25, fang: 20, fa: 23, kang: 20 },
     skills: [180, 180, 180, 180, 180, 180, 180],

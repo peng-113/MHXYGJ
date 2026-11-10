@@ -7,13 +7,82 @@
 (function (root) {
   const MHY = root.MHY || (root.MHY = {});
 
-  /** 去掉描述里的颜色控制符 */
+  /** 去掉描述里的颜色控制符（#G #Y #r #n 以及 #cFF6F28 这类六位色号） */
   function stripColor(s) {
     return String(s || '')
+      .replace(/#c[0-9a-fA-F]{6}/g, ' ')
       .replace(/#[RGBK_YWbunr]/g, ' ')
       .replace(/<br\s*\/?>/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  /** 房屋等级（藏宝阁 rent_level） */
+  const HOUSE_LEVELS = {
+    0: '无', 1: '普通', 2: '华宅', 3: '豪宅',
+    4: '华宅(带阁楼)', 5: '豪宅(带阁楼)', 6: '金屋玉宅', 7: '洞天福地',
+  };
+  /** 已知风水，按优先级从好到差 */
+  const HOUSE_FENG_SHUI = ['紫气东来', '福气东来', '富贵逼人', '平步青云'];
+
+  /**
+   * 解析居住房屋：raw.rent_level 给等级，raw.house_fangqi[0].desc 形如
+   * "58736508号豪宅 规格22231 紫气东来 庭园规模大型"，从中再取风水。
+   * 返回 { type, fengShui, desc } 或 null
+   */
+  function parseHouse(raw) {
+    const src = raw || {};
+    const out = { type: '', fengShui: '', desc: '' };
+    const list = Array.isArray(src.house_fangqi) ? src.house_fangqi : [];
+    const first = list.find((x) => x && (x.desc || x.name));
+    const desc = first ? String(first.desc || first.name) : '';
+    const level = Number(src.rent_level);
+    if (isFinite(level) && HOUSE_LEVELS[level] !== undefined) out.type = HOUSE_LEVELS[level];
+    if (desc) {
+      out.desc = desc;
+      const t = desc.match(/号\s*(普通|华宅|豪宅|金屋玉宅|洞天福地|带阁楼)/);
+      if (t) out.type = t[1];
+      else if (!out.type) {
+        if (desc.includes('金屋玉宅')) out.type = '金屋玉宅';
+        else if (desc.includes('豪宅')) out.type = '豪宅';
+        else if (desc.includes('华宅')) out.type = '华宅';
+      }
+      const known = HOUSE_FENG_SHUI.find((k) => desc.includes(k));
+      if (known) out.fengShui = known;
+      else {
+        // 兜底：去掉 “xxxx号…”“规格…”“庭园规模…” 后剩下的那个词就是风水
+        const parts = desc.split(/\s+/).filter(Boolean);
+        const feng = parts.find((p) => !/号/.test(p) && !/^规格/.test(p) && !/^庭/.test(p));
+        if (feng) out.fengShui = feng;
+      }
+    }
+    if (!out.type && !out.desc) return null;
+    return out;
+  }
+
+  /** 仓颉神木（法宝 iType=6116）的修炼境界，raw.fabao 里形如 “修炼境界：第#G28#Y层” */
+  function parseCangJie(fabao) {
+    if (!fabao || typeof fabao !== 'object') return undefined;
+    const list = Object.keys(fabao).map((k) => fabao[k]).filter((f) => f && typeof f === 'object');
+    const hit = list.find((f) => Number(f.iType) === 6116 || Number(f.type) === 6116);
+    if (!hit) return undefined;
+    const desc = stripColor(hit.cDesc || hit.desc || '');
+    const m = desc.match(/修炼境界[：:]\s*第?\s*(\d+)\s*层/);
+    return m ? Number(m[1]) : undefined;
+  }
+
+  /**
+   * 从整页源码 / 文本里读售价：优先页面内嵌数据 "price" : '16999.00'（本商品，
+   * 推荐位是整数价格且在其后），其次取显式的“售价：xxx”。
+   */
+  function parsePriceFromText(text) {
+    const s = String(text || '');
+    const explicit = s.match(/售价[：:]\s*[￥¥]?\s*([\d,]+(?:\.\d+)?)/);
+    if (explicit) return Number(explicit[1].replace(/,/g, ''));
+    const data = s.match(/"price"\s*:\s*['"]?\s*(\d+(?:\.\d+)?)/)
+      || s.match(/"price"\s*:\s*(\d+(?:\.\d+)?)/);
+    if (data) return Number(data[1]);
+    return undefined;
   }
 
   function countSkills(entry) {
@@ -94,6 +163,8 @@
       'iBeastSki1', 'iBeastSki2', 'iBeastSki3', 'iBeastSki4',
       'iNutsNum', 'addPoint', 'TA_iAllNewPoint', 'TA_iAllPoint', 'shenqi_score',
       'all_skills', 'AllEquip',
+      'total_avatar', 'total_horse', 'normal_horse', 'perform_effect',
+      'rent_level', 'outdoor_level', 'house_fangqi', 'fabao',
     ].forEach((k) => {
       const v = get(k);
       if (v !== undefined && v !== null) raw[k] = v;
@@ -174,7 +245,30 @@
     ch.qianYuanDan = num(pick(raw.TA_iAllNewPoint, raw.TA_iAllPoint));
     // 潜能果：raw 字段名是 iNutsNum
     ch.potentialFruitCount = num(pick(raw.iNutsNum, raw.qian_neng_guo));
+    // 神器积分：已取消计价，保留解析结果仅供展示（不再参与估值）
     ch.shenQiPoints = num(pick(raw.shenqi_score, undefined));
+
+    // ---- 外观：锦衣 / 祥瑞 / 施法攻击特效 ----
+    ch.jinYiCount = num(raw.total_avatar);
+    ch.xiangRuiCount = num(pick(
+      raw.total_horse,
+      raw.HugeHorse && typeof raw.HugeHorse === 'object'
+        ? (Array.isArray(raw.HugeHorse) ? raw.HugeHorse.length : Object.keys(raw.HugeHorse).length)
+        : undefined,
+    ));
+    if (Array.isArray(raw.perform_effect)) ch.teXiaoCount = raw.perform_effect.length;
+    else if (raw.perform_effect && typeof raw.perform_effect === 'object') ch.teXiaoCount = Object.keys(raw.perform_effect).length;
+
+    // ---- 家园 / 仓颉神木 ----
+    const house = parseHouse(raw);
+    if (house) {
+      if (house.type) ch.houseType = house.type;
+      if (house.fengShui) ch.houseFengShui = house.fengShui;
+      if (house.desc) ch.houseDesc = house.desc;
+    }
+    const cangJie = parseCangJie(raw.fabao);
+    if (cangJie !== undefined) ch.cangJieLevel = cangJie;
+
     if (raw.cName) ch.nickname = String(raw.cName);
     // 门派：iSchool 是门派ID，用 school_info 映射成名称
     const schoolMap = ((root.MHY_SKILL_MAP || {}).schools) || {};
@@ -235,6 +329,9 @@
       ch.jiYuan = jy.value;
       if (jy.cap) ch.jiYuanCap = jy.cap;
     }
+    // 售价：页面内嵌数据 / 书签带的“售价：xxx”
+    const price = parsePriceFromText(text);
+    if (price !== undefined) ch.salePrice = price;
     const filled = [];
     if (ch.level) filled.push('等级');
     if (ch.sect) filled.push('门派');
@@ -242,10 +339,15 @@
     if (ch.chongXiu && Object.keys(ch.chongXiu).length) filled.push('召唤兽修炼');
     if (ch.qianYuanDan !== undefined) filled.push('乾元丹');
     if (ch.jiYuan !== undefined) filled.push(`机缘 ${ch.jiYuan}${ch.jiYuanCap ? '/' + ch.jiYuanCap : ''}`);
-    if (ch.shenQiPoints !== undefined) filled.push('神器积分');
     if (ch.potentialFruitCount !== undefined) filled.push('潜能果');
     if (ch.totalExpYi !== undefined) filled.push('总经验');
     if (ch.huaShengLayers !== undefined) filled.push('化圣层数');
+    if (ch.jinYiCount !== undefined) filled.push(`锦衣 ${ch.jinYiCount}`);
+    if (ch.xiangRuiCount !== undefined) filled.push(`祥瑞 ${ch.xiangRuiCount}`);
+    if (ch.teXiaoCount !== undefined) filled.push(`特效 ${ch.teXiaoCount}`);
+    if (ch.cangJieLevel !== undefined) filled.push(`仓颉神木 ${ch.cangJieLevel}层`);
+    if (ch.houseType) filled.push(`房屋 ${ch.houseType}${ch.houseFengShui ? '·' + ch.houseFengShui : ''}`);
+    if (ch.salePrice !== undefined) filled.push(`售价 ${ch.salePrice}元`);
     const skillFilled = Array.isArray(ch.skills) && ch.skills.filter((v) => v !== '' && v !== undefined).length;
     if (skillFilled) filled.push(`师门技能 ${skillFilled} 项`);
     if (ch.qiangZhuang !== undefined) filled.push('强壮');
@@ -257,13 +359,14 @@
     if (ch.qiangZhuang === undefined) warnings.push('未找到强壮等级，请手动填写');
     if (ch.shenSu === undefined) warnings.push('未找到神速等级，请手动填写');
     if (ch.jiYuan !== undefined && !(Number(ch.jiYuanCap) > 0)) warnings.push('未读到机缘上限（只贴密文时无此数据），机缘按参数页的“满点”计算；粘贴整页源码可自动带上限');
+    if (ch.houseType === undefined) warnings.push('未读到居住房屋信息，可手动填写');
+    if (ch.salePrice === undefined) warnings.push('未读到售价，可在基础页手动填写');
     warnings.push('装备 / 灵饰 / 召唤兽档位需在“装备宝宝”页手动计数');
     return { character: ch, warnings, filled, raw };
   }
 
   /** 把页面 RoleInfoParser 的输出映射为统一 character（保留完整版能力，供未来接入） */
-  function mapCbgData(d) {
-    const ch = {};
+  function mapCbgData(d) {    const ch = {};
     const raw = d.raw || {};
     const basic = d.basic_info || {};
     const num = (v) => {
@@ -333,6 +436,10 @@
     return ch;
   }
 
-  MHY.cbg = { decodeDesc, lpcToJs, lpcToObject, extractDesc, importFromText, mapCbgData, mapRaw, normalizeRaw, parseSkillsFromRaw, parseJiYuanFromHtml, stripColor };
+  MHY.cbg = {
+    decodeDesc, lpcToJs, lpcToObject, extractDesc, importFromText, mapCbgData, mapRaw,
+    normalizeRaw, parseSkillsFromRaw, parseJiYuanFromHtml, stripColor,
+    parseHouse, parseCangJie, parsePriceFromText,
+  };
   if (typeof module === 'object' && module.exports) module.exports = MHY.cbg;
 })(typeof self !== 'undefined' ? self : this);

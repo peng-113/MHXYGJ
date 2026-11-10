@@ -43,6 +43,15 @@
     sumRow.font = { bold: true };
     sumRow.getCell('value').numFmt = '#,##0.00';
     ws.addRow([]);
+    if (result.salePrice) {
+      const sp = ws.addRow({ category: '售价', name: '藏宝阁售价', method: '读取/手填', basis: '对比估价合计', discount: '', value: money(result.salePrice) });
+      sp.getCell('value').numFmt = '#,##0.00';
+      sp.font = { bold: true };
+      const dis = result.discount === null || result.discount === undefined ? '—' : (result.discount * 100).toFixed(1) + '%';
+      const dr = ws.addRow({ category: '折扣', name: '售价/估值合计', method: '比值', basis: dis === '—' ? '—' : `售价 ÷ 估值 = ${dis}`, discount: '', value: dis });
+      dr.font = { bold: true };
+      ws.addRow([]);
+    }
     const g = result.groups;
     ws.addRow(['分组小计', '成本折算', `¥${money(g.cost)}`, '档位金额', `¥${money(g.tier)}`, `外观 ¥${money(g.appearance)}`]).font = { bold: true };
 
@@ -63,7 +72,13 @@
     push('机缘', character.jiYuan);
     push('乾元丹', character.qianYuanDan);
     push('潜能果', character.potentialFruitCount);
-    push('神器积分', character.shenQiPoints);
+    push('售价（元）', character.salePrice);
+    push('折扣（售价/估值）', result && result.discount ? (result.discount * 100).toFixed(1) + '%' : '—');
+    push('锦衣总数', character.jinYiCount);
+    push('祥瑞总数', character.xiangRuiCount);
+    push('施法/攻击特效总数', character.teXiaoCount);
+    push('仓颉神木等级（仅展示）', character.cangJieLevel);
+    push('居住房屋', character.houseType ? `${character.houseType}${character.houseFengShui ? '（' + character.houseFengShui + '）' : ''}` : '—');
     push('人物修炼', ['攻', '防', '法', '抗'].map((n, i) => {
       const k = ['gong', 'fang', 'fa', 'kang'][i];
       return `${n}${character.renXiu && character.renXiu[k] !== undefined ? character.renXiu[k] : '—'}`;

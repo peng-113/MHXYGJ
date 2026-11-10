@@ -44,10 +44,22 @@
         <label class="field"><span id="jiyuan-label">机缘（点）</span><input type="number" inputmode="numeric" data-num="character.jiYuan" min="0" max="200" placeholder="57"></label>
         <label class="field"><span>乾元丹（颗）</span><input type="number" inputmode="numeric" data-num="character.qianYuanDan" min="0" max="9" placeholder="9"></label>
         <label class="field"><span>潜能果（个）</span><input type="number" inputmode="numeric" data-num="character.potentialFruitCount" min="0" max="200" placeholder="200"></label>
-        <label class="field"><span>神器积分</span><input type="number" inputmode="numeric" data-num="character.shenQiPoints" min="0" placeholder="8"></label>
+        <label class="field"><span>售价（元）</span><input type="number" inputmode="decimal" data-num="character.salePrice" min="0" step="0.01" placeholder="如 16999"></label>
       </div>
-      <p class="hint">留空的项目会按“缺失”处理并在下方提示，不影响其他项计算。</p>
+      <p class="hint">留空的项目会按“缺失”处理并在下方提示，不影响其他项计算。神器积分已取消统计与估价。</p>
       <p class="hint import-note" id="import-note" hidden></p>
+    </div>
+    <div class="card">
+      <h2>外观 / 家园 <small>仅计数，价格见参数页</small></h2>
+      <div class="grid">
+        <label class="field"><span>锦衣总数（件）</span><input type="number" inputmode="numeric" data-num="character.jinYiCount" min="0" placeholder="44"></label>
+        <label class="field"><span>祥瑞总数（只）</span><input type="number" inputmode="numeric" data-num="character.xiangRuiCount" min="0" placeholder="9"></label>
+        <label class="field"><span>施法/攻击特效（个）</span><input type="number" inputmode="numeric" data-num="character.teXiaoCount" min="0" placeholder="0"></label>
+        <label class="field"><span>仓颉神木（等级）</span><input type="number" inputmode="numeric" data-num="character.cangJieLevel" min="0" placeholder="28"></label>
+        <label class="field"><span>居住房屋</span><input type="text" data-text="character.houseType" placeholder="无 / 普通 / 华宅 / 豪宅"></label>
+        <label class="field"><span>房屋风水</span><input type="text" data-text="character.houseFengShui" placeholder="如 紫气东来"></label>
+      </div>
+      <p class="hint">仓颉神木仅展示等级，不参与估价。特效总数 ≥ 1 个加固定金额；房屋按“豪宅 + 紫气东来”加固定金额，其余为 0（金额在参数页调整）。</p>
     </div>
     <div class="card">
       <h2>快捷操作</h2>
@@ -157,10 +169,8 @@
         <label class="field"><span>奖金1（元）</span><input type="number" inputmode="numeric" data-param="expBonus.bonus1"></label>
         <label class="field"><span>经验阈值2（亿）</span><input type="number" inputmode="numeric" data-param="expBonus.threshold2"></label>
         <label class="field"><span>奖金2（元）</span><input type="number" inputmode="numeric" data-param="expBonus.bonus2"></label>
-        <label class="field"><span>神器合格线（分）</span><input type="number" inputmode="numeric" data-param="shenQi.qualifiedPoints"></label>
-        <label class="field"><span>神器合格价（元）</span><input type="number" inputmode="numeric" data-param="shenQi.qualifiedPrice"></label>
-        <label class="field"><span>神器极限线（分）</span><input type="number" inputmode="numeric" data-param="shenQi.extremePoints"></label>
-        <label class="field"><span>神器极限价（元）</span><input type="number" inputmode="numeric" data-param="shenQi.extremePrice"></label>
+        <label class="field"><span>特效≥1个加（元）</span><input type="number" inputmode="numeric" data-param="effectBonus" min="0"></label>
+        <label class="field"><span>房屋加价（元）</span><input type="number" inputmode="numeric" data-param="house.price" min="0"></label>
         <label class="field"><span>机缘满点（读不到上限时）</span><input type="number" inputmode="numeric" data-param="jiYuan.full"></label>
         <label class="field"><span>机缘满分奖金（元）</span><input type="number" inputmode="numeric" data-param="jiYuan.fullBonus"></label>
         <label class="field"><span>机缘每少1点扣（元）</span><input type="number" inputmode="numeric" data-param="jiYuan.perPoint"></label>
@@ -171,6 +181,7 @@
         <label class="field"><span>修炼果单价（万两）</span><input type="number" inputmode="numeric" data-param="fruitPrice"></label>
         <label class="field"><span>每果经验（万）</span><input type="number" inputmode="numeric" data-param="fruitExp"></label>
       </div>
+      <p class="hint">房屋加价规则：居住房屋为「豪宅」且风水为「紫气东来」时计入，其余房屋为 0。神器积分不再估价。</p>
     </div>
     <div class="card">
       <h2>档位价格（元）</h2>
@@ -219,8 +230,11 @@
     <div class="sum-value" id="total">¥0</div>
   </div>
   <div class="sum-right">
-    <div class="sum-meta" id="missing-count">—</div>
-    <button class="btn ghost small" id="btn-detail">明细</button>
+    <div class="sum-price" id="sum-price">售价 — · 折扣 —</div>
+    <div class="sum-sub">
+      <span class="sum-meta" id="missing-count">—</span>
+      <button class="btn ghost small" id="btn-detail">明细</button>
+    </div>
   </div>
 </footer>
 
