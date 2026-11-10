@@ -80,10 +80,11 @@
     const src = obj && typeof obj === 'object' ? obj : {};
     const get = (k) => (src[k] !== undefined ? src[k] : (src.raw && src.raw[k]));
     [
-      'iGrade', 'cName', 'iSchool', 'sum_exp', 'i3FlyLv', 'iZhuanZhi', 'ji_yuan', 'jiyuan',
+      'iGrade', 'cName', 'iSchool', 'sum_exp', 'i3FlyLv', 'iZhuanZhi',
+      'jiyuan', 'ji_yuan',
       'iExptSki1', 'iExptSki2', 'iExptSki3', 'iExptSki4', 'iExptSki5',
       'iBeastSki1', 'iBeastSki2', 'iBeastSki3', 'iBeastSki4',
-      'TA_iAllNewPoint', 'TA_iAllPoint', 'shenqi_score', 'qian_neng_guo', 'qian_neng_guo_num',
+      'iNutsNum', 'TA_iAllNewPoint', 'TA_iAllPoint', 'shenqi_score',
       'all_skills', 'AllEquip',
     ].forEach((k) => {
       const v = get(k);
@@ -128,7 +129,8 @@
       skillNames,
       qiangZhuang: lifeGrade(life.qiangZhuang),
       shenSu: lifeGrade(life.shenSu),
-      shouShu: lifeGrade(life.shouShu),
+      // 育兽术（221）仅展示，不参与计价；猎术是人物修炼第 5 项，不在这里
+      yuShouShu: lifeGrade(life.yuShouShu),
       complete: found >= 7,
     };
   }
@@ -152,11 +154,18 @@
     ch.totalExpYi = expRaw === undefined ? undefined
       : (expRaw > 1e6 ? Math.round((expRaw / 1e8) * 10) / 10 : expRaw);
     ch.huaShengLayers = num(pick(raw.i3FlyLv, 0));
-    ch.jiYuan = num(pick(raw.jiYuan !== undefined ? raw.jiYuan : raw.ji_yuan, undefined));
-    ch.qianYuanDan = num(pick(raw.TA_iAllNewPoint, undefined));
-    ch.potentialFruitCount = num(pick(raw.qian_neng_guo, raw.qian_neng_guo_num));
+    // 机缘：raw 字段名是 jiyuan（月饼 / 粽子等累积）
+    ch.jiYuan = num(pick(raw.jiyuan, raw.ji_yuan));
+    ch.qianYuanDan = num(pick(raw.TA_iAllNewPoint, raw.TA_iAllPoint));
+    // 潜能果：raw 字段名是 iNutsNum
+    ch.potentialFruitCount = num(pick(raw.iNutsNum, raw.qian_neng_guo));
     ch.shenQiPoints = num(pick(raw.shenqi_score, undefined));
     if (raw.cName) ch.nickname = String(raw.cName);
+    // 门派：iSchool 是门派ID，用 school_info 映射成名称
+    const schoolMap = ((root.MHY_SKILL_MAP || {}).schools) || {};
+    if (raw.iSchool !== undefined && schoolMap[String(raw.iSchool)]) {
+      ch.sect = schoolMap[String(raw.iSchool)];
+    }
 
     ch.renXiu = {
       gong: num(raw.iExptSki1), fang: num(raw.iExptSki2),
@@ -168,14 +177,14 @@
       fa: num(raw.iBeastSki3), kang: num(raw.iBeastSki4),
     };
 
-    // 师门技能 / 强壮 / 神速：来自 raw.all_skills（离线可解析）
+    // 师门技能 / 强壮 / 神速 / 育兽术：来自 raw.all_skills（离线可解析）
     const sk = parseSkillsFromRaw(raw);
     if (sk) {
       ch.skills = sk.skills;
       ch.skillNames = sk.skillNames;
       if (sk.qiangZhuang !== undefined) ch.qiangZhuang = sk.qiangZhuang;
       if (sk.shenSu !== undefined) ch.shenSu = sk.shenSu;
-      if (sk.shouShu !== undefined) ch.shouShu = sk.shouShu;
+      if (sk.yuShouShu !== undefined) ch.yuShouShu = sk.yuShouShu;
     }
     Object.keys(ch.renXiu).forEach((k) => { if (ch.renXiu[k] === undefined) delete ch.renXiu[k]; });
     Object.keys(ch.chongXiu).forEach((k) => { if (ch.chongXiu[k] === undefined) delete ch.chongXiu[k]; });
@@ -208,6 +217,8 @@
     if (skillFilled) filled.push(`师门技能 ${skillFilled} 项`);
     if (ch.qiangZhuang !== undefined) filled.push('强壮');
     if (ch.shenSu !== undefined) filled.push('神速');
+    if (ch.yuShouShu !== undefined) filled.push('育兽术');
+    if (ch.shouShu !== undefined) filled.push('猎术');
     const warnings = [];
     if (!skillFilled) warnings.push('未找到师门技能数据，请手动填写');
     if (ch.qiangZhuang === undefined) warnings.push('未找到强壮等级，请手动填写');

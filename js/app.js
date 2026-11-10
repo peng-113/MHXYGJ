@@ -12,7 +12,7 @@
     chongXiu: { gong: '', fang: '', fa: '', kang: '' },
     skills: ['', '', '', '', '', '', ''],
     skillNames: [],
-    qiangZhuang: '', shenSu: '',
+    qiangZhuang: '', shenSu: '', yuShouShu: '',
     mounts: [],
   });
 
@@ -285,7 +285,7 @@
   // ---------- 估值 ----------
   function buildCharacter() {
     const c = clone(state.character);
-    const numeric = ['level', 'totalExpYi', 'huaShengLayers', 'jiYuan', 'qianYuanDan', 'potentialFruitCount', 'shenQiPoints', 'shouShu', 'qiangZhuang', 'shenSu'];
+    const numeric = ['level', 'totalExpYi', 'huaShengLayers', 'jiYuan', 'qianYuanDan', 'potentialFruitCount', 'shenQiPoints', 'shouShu', 'qiangZhuang', 'shenSu', 'yuShouShu'];
     numeric.forEach((k) => { if (c[k] === '' || c[k] === null) c[k] = undefined; });
     ['renXiu', 'chongXiu'].forEach((g) => {
       if (!c[g]) return;
@@ -348,11 +348,20 @@
       document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + btn.dataset.tab));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
-    document.getElementById('btn-detail').onclick = () => {
-      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-      document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-result'));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    // 明细：从底部向上展开的抽屉，不替换当前页面内容
+    const drawer = document.getElementById('detail-drawer');
+    const btnDetail = document.getElementById('btn-detail');
+    const setDrawer = (open) => {
+      drawer.classList.toggle('open', open);
+      document.body.classList.toggle('drawer-open', open);
+      btnDetail.textContent = open ? '收起' : '明细';
+      if (open) {
+        const inner = drawer.querySelector('.drawer-inner');
+        if (inner) inner.scrollTop = 0;
+      }
     };
+    btnDetail.onclick = () => setDrawer(!drawer.classList.contains('open'));
+    document.getElementById('btn-close-detail').onclick = () => setDrawer(false);
   }
 
   // ---------- 导入 ----------
@@ -367,7 +376,8 @@
       msg.className = 'msg';
     };
     document.getElementById('btn-close-import').onclick = () => { modal.hidden = true; };
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+    // 故意不做“点背景关闭”：在 textarea 里选中文字后把鼠标拖到框外松开，
+    // 浏览器会在背景元素上补发一次 click，导致弹窗被误关。只允许按钮关闭。
     document.getElementById('btn-clear-import').onclick = () => { text.value = ''; msg.textContent = ''; };
 
     document.getElementById('btn-do-import').onclick = () => {
@@ -456,6 +466,12 @@
     };
   }
 
+  // ---------- 底部栏高度（供明细抽屉贴合定位） ----------
+  function syncFooterHeight() {
+    const f = document.querySelector('footer.summary');
+    if (f) document.documentElement.style.setProperty('--footer-h', f.offsetHeight + 'px');
+  }
+
   // ---------- 启动 ----------
   load();
   renderSkillGrid();
@@ -467,5 +483,8 @@
   bindQuick();
   bindExport();
   syncInputs();
+  syncFooterHeight();
+  window.addEventListener('resize', syncFooterHeight);
+  window.addEventListener('orientationchange', syncFooterHeight);
   recalc();
 })();

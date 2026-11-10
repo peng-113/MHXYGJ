@@ -311,6 +311,45 @@ main {
 .sum-right { display: flex; align-items: center; gap: 10px; }
 .sum-meta { font-size: 12px; color: var(--text-2); text-align: right; }
 
+/* ---------- 明细抽屉（从底部向上展开，不替换页面） ---------- */
+.drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--footer-h, 60px);
+  z-index: 25;
+  max-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: 14px 14px 0 0;
+  transition: max-height .26s ease;
+}
+.drawer.open {
+  max-height: 62vh;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, .10);
+}
+.drawer-inner {
+  max-height: 62vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2px;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+.drawer-head h2 { margin: 0; font-size: 14px; font-weight: 500; }
+body.drawer-open .summary { border-top-color: transparent; }
+
 /* ---------- 弹窗 ---------- */
 .modal {
   position: fixed;

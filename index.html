@@ -100,8 +100,9 @@
       <div class="grid">
         <label class="field"><span>强壮</span><input type="number" inputmode="numeric" data-num="character.qiangZhuang" min="0" max="60" placeholder="0"></label>
         <label class="field"><span>神速</span><input type="number" inputmode="numeric" data-num="character.shenSu" min="0" max="60" placeholder="0"></label>
+        <label class="field"><span>育兽术（仅展示）</span><input type="number" inputmode="numeric" data-num="character.yuShouShu" min="0" max="40" placeholder="0"></label>
       </div>
-      <p class="hint">0→45 累计 25,560 万两；0→60 累计 90,305 万两。</p>
+      <p class="hint">0→45 累计 25,560 万两；0→60 累计 90,305 万两。育兽术仅记录，不参与计价。</p>
     </div>
     <div class="card">
       <h2>坐骑 <small>成长值</small></h2>
@@ -182,14 +183,17 @@
     </div>
   </section>
 
-  <section class="page" id="page-result">
-    <div class="card">
-      <h2>估值明细</h2>
-      <div id="result-list" class="result-list"></div>
-    </div>
-  </section>
-
 </main>
+
+<div class="drawer" id="detail-drawer">
+  <div class="drawer-inner">
+    <div class="drawer-head">
+      <h2>估值明细</h2>
+      <button class="btn ghost small" id="btn-close-detail">收起</button>
+    </div>
+    <div id="result-list" class="result-list"></div>
+  </div>
+</div>
 
 <footer class="summary">
   <div class="sum-left">
