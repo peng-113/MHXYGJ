@@ -49,9 +49,9 @@ window.MHY_DEFAULT_CONFIG = {
     "jiYuan": {
       "full": 57,
       "fullBonus": 500,
-      "perPoint": 20
+      "thresholdPercent": 80
     },
-    "_jiYuan_comment": "机缘：满 full 点加 fullBonus 元，每少 1 点扣 perPoint 元（下限 0）",
+    "_jiYuan_comment": "机缘：点数 ≥ 上限 × thresholdPercent%（默认 80%）加 fullBonus 元，否则不计价",
     "appearanceBonus": 0,
     "_appearanceBonus_comment": "外观溢价：全局手动输入，元，默认 0"
   },

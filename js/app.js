@@ -530,10 +530,32 @@
 
   // ---------- 导入 ----------
   // ---------- 导入（粘贴源码 / 书签带参） ----------
+  /**
+   * 由导入自动填写的字段。导入是"整份快照"，必须先清空再合并，
+   * 否则新账号读不到的项（无房屋、无法宝仓颉神木、只贴密文时的售价/机缘上限）
+   * 会沿用上一次导入的残留值。
+   */
+  const AUTOFILL_KEYS = [
+    'level', 'sect', 'nickname', 'totalExpYi', 'huaShengLayers',
+    'jiYuan', 'jiYuanEat', 'jiYuanBase', 'jiYuanCap',
+    'qianYuanDan', 'potentialFruitCount', 'shouShu', 'qiangZhuang', 'shenSu', 'yuShouShu',
+    'salePrice', 'jinYiCount', 'xiangRuiCount', 'teXiaoCount', 'cangJieLevel',
+    'houseType', 'houseFengShui', 'houseDesc',
+  ];
+
+  function resetAutoFields() {
+    AUTOFILL_KEYS.forEach((k) => { state.character[k] = ''; });
+    state.character.renXiu = { gong: '', fang: '', fa: '', kang: '' };
+    state.character.chongXiu = { gong: '', fang: '', fa: '', kang: '' };
+    state.character.skills = ['', '', '', '', '', '', ''];
+    state.character.skillNames = [];
+  }
+
   /** 把导入文本解码并填入当前角色，返回 { filled, warnings } */
   function applyImport(rawText) {
     const r = cbg.importFromText(rawText);
     const ch = r.character;
+    resetAutoFields();
     Object.keys(ch).forEach((k) => {
       if (k === 'renXiu' || k === 'chongXiu') {
         state.character[k] = Object.assign({ gong: '', fang: '', fa: '', kang: '' }, ch[k]);

@@ -37,6 +37,9 @@
     const first = list.find((x) => x && (x.desc || x.name));
     const desc = first ? String(first.desc || first.name) : '';
     const level = Number(src.rent_level);
+    // rent_level 明确为 0 就是"无房屋"：此时不该有等级也不该有风水，
+    // 直接返回，避免旧数据/描述里残留的词被误读成风水
+    if (level === 0) return { type: '无', fengShui: '', desc: '' };
     if (isFinite(level) && HOUSE_LEVELS[level] !== undefined) out.type = HOUSE_LEVELS[level];
     if (desc) {
       out.desc = desc;
@@ -214,6 +217,11 @@
     };
   }
 
+  /** 计数类字段：读不到就按 0 处理（导入时才能正确覆盖上一次的旧值） */
+  function orZero(v) {
+    return v === undefined || v === null || v === '' || !isFinite(Number(v)) ? 0 : Number(v);
+  }
+
   /** 把 raw 映射为统一 character（只填能确定的字段） */
   function mapRaw(raw, extra) {
     const ch = {};
@@ -249,25 +257,28 @@
     ch.shenQiPoints = num(pick(raw.shenqi_score, undefined));
 
     // ---- 外观：锦衣 / 祥瑞 / 施法攻击特效 ----
-    ch.jinYiCount = num(raw.total_avatar);
-    ch.xiangRuiCount = num(pick(
+    // 注意：这几项（以及下面的房屋/仓颉神木）即使本账号没有，也必须显式赋 0/空，
+    // 否则导入时不会覆盖上一账号的值，界面上就会出现"上一账号的残留数据"。
+    ch.jinYiCount = orZero(num(raw.total_avatar));
+    ch.xiangRuiCount = orZero(num(pick(
       raw.total_horse,
       raw.HugeHorse && typeof raw.HugeHorse === 'object'
         ? (Array.isArray(raw.HugeHorse) ? raw.HugeHorse.length : Object.keys(raw.HugeHorse).length)
         : undefined,
-    ));
-    if (Array.isArray(raw.perform_effect)) ch.teXiaoCount = raw.perform_effect.length;
-    else if (raw.perform_effect && typeof raw.perform_effect === 'object') ch.teXiaoCount = Object.keys(raw.perform_effect).length;
+    )));
+    let txCount;
+    if (Array.isArray(raw.perform_effect)) txCount = raw.perform_effect.length;
+    else if (raw.perform_effect && typeof raw.perform_effect === 'object') txCount = Object.keys(raw.perform_effect).length;
+    ch.teXiaoCount = orZero(txCount);
 
     // ---- 家园 / 仓颉神木 ----
-    const house = parseHouse(raw);
-    if (house) {
-      if (house.type) ch.houseType = house.type;
-      if (house.fengShui) ch.houseFengShui = house.fengShui;
-      if (house.desc) ch.houseDesc = house.desc;
-    }
-    const cangJie = parseCangJie(raw.fabao);
-    if (cangJie !== undefined) ch.cangJieLevel = cangJie;
+    // 房屋为"无"时风水必须清空（此前只写有值的字段，风水会残留上一次的）
+    const house = parseHouse(raw) || { type: '', fengShui: '', desc: '' };
+    ch.houseType = house.type || '';
+    ch.houseFengShui = house.fengShui || '';
+    ch.houseDesc = house.desc || '';
+    // 没有仓颉神木（法宝里找不到 iType=6116）时为 0 层，而不是沿用上次读到的层数
+    ch.cangJieLevel = orZero(parseCangJie(raw.fabao));
 
     if (raw.cName) ch.nickname = String(raw.cName);
     // 门派：iSchool 是门派ID，用 school_info 映射成名称
@@ -345,7 +356,7 @@
     if (ch.jinYiCount !== undefined) filled.push(`锦衣 ${ch.jinYiCount}`);
     if (ch.xiangRuiCount !== undefined) filled.push(`祥瑞 ${ch.xiangRuiCount}`);
     if (ch.teXiaoCount !== undefined) filled.push(`特效 ${ch.teXiaoCount}`);
-    if (ch.cangJieLevel !== undefined) filled.push(`仓颉神木 ${ch.cangJieLevel}层`);
+    if (ch.cangJieLevel > 0) filled.push(`仓颉神木 ${ch.cangJieLevel}层`);
     if (ch.houseType) filled.push(`房屋 ${ch.houseType}${ch.houseFengShui ? '·' + ch.houseFengShui : ''}`);
     if (ch.salePrice !== undefined) filled.push(`售价 ${ch.salePrice}元`);
     const skillFilled = Array.isArray(ch.skills) && ch.skills.filter((v) => v !== '' && v !== undefined).length;
@@ -359,7 +370,7 @@
     if (ch.qiangZhuang === undefined) warnings.push('未找到强壮等级，请手动填写');
     if (ch.shenSu === undefined) warnings.push('未找到神速等级，请手动填写');
     if (ch.jiYuan !== undefined && !(Number(ch.jiYuanCap) > 0)) warnings.push('未读到机缘上限（只贴密文时无此数据），机缘按参数页的“满点”计算；粘贴整页源码可自动带上限');
-    if (ch.houseType === undefined) warnings.push('未读到居住房屋信息，可手动填写');
+    if (!ch.houseType) warnings.push('未读到居住房屋信息，可手动填写');
     if (ch.salePrice === undefined) warnings.push('未读到售价，可在基础页手动填写');
     warnings.push('装备 / 灵饰 / 召唤兽档位需在“装备宝宝”页手动计数');
     return { character: ch, warnings, filled, raw };

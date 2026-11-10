@@ -239,17 +239,25 @@
     // ---- 9. 神器积分：已取消，不再统计也不再估价（字段仅保留展示用）----
     // （原按积分档位加价，现改为仅在基础页展示/不参与合计）
 
-    // ---- 10. 机缘 ----
+    // ---- 10. 机缘（点数 ≥ 上限的 N% 才给奖金，否则不计价）----
     const jy = character.jiYuan;
     if (jy !== undefined && jy !== null && jy !== '') {
-      const jc = params.jiYuan;
-      // “满”优先取账号实际读取到的上限（如 69），读不到时退回参数页配置（默认 57）
+      const jc = params.jiYuan || {};
+      // “满”优先取账号实际读取到的上限（如 69），读不到时退回参数页配置
       const capNum = Number(character.jiYuanCap);
       const hasCap = isFinite(capNum) && capNum > 0;
-      const full = hasCap ? capNum : jc.full;
-      const v = jy >= full ? jc.fullBonus : Math.max(0, jc.fullBonus - (full - jy) * jc.perPoint);
+      const full = hasCap ? capNum : (Number(jc.full) || 69);
+      const pct = Number(jc.thresholdPercent) > 0 ? Number(jc.thresholdPercent) : 80;
+      const need = Math.ceil(full * pct / 100);
+      const bonus = Number(jc.fullBonus) || 0;
+      const hit = Number(jy) >= need;
+      const v = hit ? bonus : 0;
       const fullTxt = hasCap ? `满${full}，按账号上限` : `满${full}`;
-      items.push({ category: '底子', name: '机缘', method: '固定金额', basis: `${jy}/${full}点（${fullTxt}），每少1点扣${jc.perPoint}`, discount: '-', value: fmt(v), status: 'ok' });
+      items.push({
+        category: '底子', name: '机缘', method: '固定金额',
+        basis: `${jy}/${full}点（${fullTxt}），${hit ? `≥${pct}%达标，加${bonus}元` : `未达${pct}%（需${need}点），不计价`}`,
+        discount: '-', value: fmt(v), status: 'ok',
+      });
     }
 
     // ---- 11. 装备 / 灵饰（档位金额）----
