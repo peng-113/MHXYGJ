@@ -222,7 +222,7 @@ async function doLogin(page) {
     await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2500);
     const probe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
-    log('凭证探测 status:', probe.status, probe.status_code || '');
+    log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
       log('登录凭证已失效');
       await sendWecom('⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手（完成后更新 SESSION_STATE Secret），监控会自动恢复。');
@@ -249,7 +249,7 @@ async function doLogin(page) {
     if (!ok) {
       // 页面文本判定可能误判，用一次真实搜索探测兜底
       const reprobe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
-      log('登录后探测 status:', reprobe.status, reprobe.status_code || '');
+      log('登录后探测 status:', reprobe.status, reprobe.status_code || '', reprobe.msg || '');
       loggedIn = isOk(reprobe);
     }
     if (!loggedIn) {
