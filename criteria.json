@@ -1,6 +1,6 @@
 {
-  "rev": 1794896056085,
-  "updatedAt": "2026-11-17T06:14:16.085Z",
+  "rev": 1794898330904,
+  "updatedAt": "2026-11-17T06:52:10.904Z",
   "schemes": [
     {
       "id": "sch_example",
@@ -8,7 +8,8 @@
       "enabled": true,
       "criteria": {
         "serverid": "215",
-        "price_max": "1500000",
+        "price_max": "2000000",
+        "bb_expt_total": "100",
         "zhuang_zhi": "10,20,30,40,50,60,70,80,90"
       }
     }
