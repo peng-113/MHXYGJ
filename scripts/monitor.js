@@ -95,39 +95,46 @@ async function isLoggedIn(page) {
   return page.evaluate(() => /退出登录|>退出<|切换角色/.test(document.body.innerText));
 }
 
-/** 账密登录（网易统一登录在 iframe 里） */
+/** 账密登录（登录页 show_login.py?act=show_login，网易统一登录 iframe：dl.reg.163.com） */
+async function findPassFrame(page) {
+  const frames = page.frames();
+  for (const f of frames) {
+    const has = await f.evaluate(() => !!document.querySelector('input[name=password],input[name=email]')).catch(() => false);
+    if (has) return f;
+  }
+  return null;
+}
+
 async function doLogin(page) {
   log('打开登录页…');
-  await page.goto(HOME + '/cgi-bin/show_login.py', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(3000);
-  // 登录框可能在 iframe 里（passport 统一登录），也可能直接在页面
-  const frames = page.frames();
-  let target = null;
-  for (const f of frames) {
-    const has = await f.evaluate(() => !!document.querySelector('input[type=password]')).catch(() => false);
-    if (has) { target = f; break; }
+  await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4000);
+  const target = await findPassFrame(page);
+  if (!target) {
+    const dbg = await page.evaluate(() => ({
+      url: location.href, title: document.title,
+      text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 300),
+    })).catch(() => ({}));
+    const frameUrls = page.frames().map((f) => f.url()).join(' | ');
+    throw new Error('没找到登录输入框。页面: ' + (dbg.url || '?') + ' | 文本: ' + (dbg.text || '') + ' | frames: ' + frameUrls);
   }
-  if (!target) throw new Error('没找到登录输入框（页面结构可能变化）');
-  log('在 frame', target.url().slice(0, 80), '中填写账号');
-  // 账号
-  const userInput = await target.$('#username') || await target.$('input[name=username]') || await target.$('input[name=account]');
+  log('在登录 iframe 中填写账号');
+  const userInput = await target.$('input[name=email]');
   if (!userInput) throw new Error('没找到账号输入框');
   await userInput.fill('');
   await userInput.type(ACCOUNT, { delay: 60 });
   await page.waitForTimeout(800);
-  const passInput = await target.$('#password') || await target.$('input[name=password]');
+  const passInput = await target.$('input[name=password]');
   await passInput.fill('');
   await passInput.type(PASSWORD, { delay: 60 });
   await page.waitForTimeout(500);
-  // 提交：优先明确的登录按钮
+  // 提交：优先明确的登录按钮（网易统一登录按钮可能是 a/button/input）
   const clicked = await target.evaluate(() => {
     const cands = [
-      ...document.querySelectorAll('#loginbtn, .js-login, input[type=submit], a.loginbtn, button'),
+      ...document.querySelectorAll('#loginbtn, .js-login, input[type=submit], a.loginbtn, button, a, div[class*=loginbtn], a[class*=login]'),
     ];
-    const el = cands.find((b) => /登\s*录|登 录/.test((b.value || b.textContent || '')));
+    const el = cands.find((b) => /^(登\s*录|登录)$/.test((b.value || b.textContent || '').trim()) && b.offsetParent !== null);
     if (el) { el.click(); return el.tagName + '.' + el.className; }
-    const form = document.querySelector('form');
-    if (form) { form.submit(); return 'form.submit'; }
     return '';
   });
   log('提交登录:', clicked || '未找到按钮');
