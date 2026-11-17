@@ -59,12 +59,18 @@ function isOk(res) {
 
 function resultLine(r) {
   const name = r.equip_name || r.name || '未知角色';
-  const price = money(r.price);
-  const server = r.server_name || '';
-  const level = r.level != null ? r.level + '级' : '';
-  const url = `${HOME}/equip?s=${r.server_id || r.serverid}&eid=${r.eid}`;
-  let line = `**${name}**（${level}） ${price}元 ${server}`;
-  if (r.highlight) {
+  // 金额按实际售价精确显示（price_desc 为官方标价，如 "14850.00"）
+  let price = money(r.price);
+  if (r.price_desc) {
+    const p = Number(r.price_desc);
+    price = (Number.isInteger(p) ? p.toLocaleString('en-US') : r.price_desc) + '元';
+  }
+  const server = [r.area_name, r.server_name].filter(Boolean).join('-');
+  const level = r.level_desc || (r.level != null ? r.level + '级' : '');
+  const url = `${HOME}/equip?s=${r.serverid || r.server_id || ''}&eid=${r.eid}&client_type=web&o`;
+  let line = `**${name}**（${level}） ${price} ${server}`;
+  if (r.desc_sumup) line += `\n> ${r.desc_sumup}`;
+  else if (r.highlight) {
     const hl = Array.isArray(r.highlight) ? r.highlight.map((h) => h.name || h).join(' / ') : String(r.highlight);
     if (hl) line += '\n> ' + hl.slice(0, 80);
   }
