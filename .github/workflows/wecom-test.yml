@@ -1,0 +1,20 @@
+name: wecom-test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test message
+        env:
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: |
+          if [ -z "$WECOM_WEBHOOK" ]; then echo "WECOM_WEBHOOK 未配置"; exit 1; fi
+          echo "Webhook 前缀: ${WECOM_WEBHOOK:0:45}…"
+          echo "Webhook 长度: ${#WECOM_WEBHOOK}"
+          curl -s -X POST "$WECOM_WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d '{"msgtype":"markdown","markdown":{"content":"✅ **藏宝阁监控·通道测试**\n如果你看到这条消息，说明企微推送通道正常。"}}' \
+            -w "\nHTTP状态: %{http_code}\n"
