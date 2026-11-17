@@ -115,7 +115,22 @@ async function doLogin(page) {
   log('打开登录页…');
   await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(4000);
-  const target = await findPassFrame(page);
+  let target = await findPassFrame(page);
+  // 默认可能是"二维码登录"标签，先点"邮箱登录"切到账密表单
+  if (!target) {
+    log('未见密码表单，尝试点击"邮箱登录"标签…');
+    for (const f of page.frames()) {
+      const tab = await f.evaluate(() => {
+        const els = [...document.querySelectorAll('a,span,div,li,dt,dd,p')];
+        const el = els.find((e) => /^(邮箱登录|网易邮箱账号登录)$/.test((e.textContent || '').trim()) && e.offsetParent !== null);
+        if (el) { el.click(); return el.tagName + '.' + el.className; }
+        return '';
+      }).catch(() => '');
+      if (tab) { log('已点击标签:', tab); break; }
+    }
+    await page.waitForTimeout(2500);
+    target = await findPassFrame(page);
+  }
   if (!target) {
     const dbg = await page.evaluate(() => ({
       url: location.href, title: document.title,
