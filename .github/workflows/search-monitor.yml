@@ -52,16 +52,10 @@ jobs:
             git push || true
             if [ $i -lt 10 ]; then
               # 休眠到下一个固定触发点（每小时第 7 / 37 分，避开整点拥堵时段）
-              SLEEP_S=$(python3 -c "
-import datetime as dt
-now = dt.datetime.utcnow()
-for m in (7, 37, 67):
-    t = now.replace(minute=m % 60, second=10, microsecond=0)
-    if m == 67:
-        t += dt.timedelta(hours=1)
-    if t > now:
-        print(max(int((t - now).total_seconds()), 60)); break
-")
+              M=$(date -u +%M); S=$(date -u +%S)
+              if [ "$M" -lt 07 ]; then SLEEP_S=$(( (7 - 10#$M) * 60 - 10#$S + 10 ));
+              elif [ "$M" -lt 37 ]; then SLEEP_S=$(( (37 - 10#$M) * 60 - 10#$S + 10 ));
+              else SLEEP_S=$(( (67 - 10#$M) * 60 - 10#$S + 10 )); fi
               echo "休眠 ${SLEEP_S}s 至下一个固定触发点（:07/:37）"
               sleep "$SLEEP_S"
             fi
