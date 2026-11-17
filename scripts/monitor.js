@@ -74,26 +74,20 @@ function resultLine(r) {
 
 /** 用已登录的浏览器上下文请求一次搜索（JSONP） */
 async function searchOnce(ctx, criteria, pageNo) {
-  const page = await ctx.newPage();
-  try {
-    const qs = new URLSearchParams();
-    qs.set('act', 'recommd_by_role');
-    qs.set('search_type', SEARCH_TYPE);
-    qs.set('page', String(pageNo || 1));
-    qs.set('count', '15');
-    qs.set('_', String(Date.now()));
-    Object.keys(criteria || {}).forEach((k) => qs.set(k, criteria[k]));
-    const url = `${SEARCH_URL}?callback=cb&${qs.toString()}`;
-    const text = await page.evaluate(async (u) => {
-      const r = await fetch(u, { credentials: 'include' });
-      return await r.text();
-    }, url);
-    const m = text.match(/^\w+\(([\s\S]*)\)\s*$/);
-    if (!m) throw new Error('响应不是 JSONP：' + text.slice(0, 120));
-    return JSON.parse(m[1]);
-  } finally {
-    await page.close().catch(() => {});
-  }
+  const qs = new URLSearchParams();
+  qs.set('act', 'recommd_by_role');
+  qs.set('search_type', SEARCH_TYPE);
+  qs.set('page', String(pageNo || 1));
+  qs.set('count', '15');
+  qs.set('_', String(Date.now()));
+  Object.keys(criteria || {}).forEach((k) => qs.set(k, criteria[k]));
+  const url = `${SEARCH_URL}?callback=cb&${qs.toString()}`;
+  // 用 Playwright 请求层（自动携带上下文 cookies，比页面内 fetch 稳定）
+  const resp = await ctx.request.get(url, { headers: { Referer: FORM_URL } });
+  const text = await resp.text();
+  const m = text.match(/^\w+\(([\s\S]*)\)\s*$/);
+  if (!m) throw new Error('响应不是 JSONP：HTTP ' + resp.status() + ' ' + text.slice(0, 120));
+  return JSON.parse(m[1]);
 }
 
 /** 检查登录态（页面顶部是否出现"退出"） */
@@ -190,6 +184,7 @@ async function doLogin(page) {
   log(`共 ${criteriaData.schemes.length} 个方案，启用 ${enabled.length} 个`);
 
   const state = loadJson(STATE_FILE, { seen: {} });
+  if (!state.seen || typeof state.seen !== 'object') state.seen = {};
 
   if (DRY_RUN) {
     enabled.forEach((s) => log('方案', s.name, '条件:', JSON.stringify(s.criteria)));
@@ -198,9 +193,9 @@ async function doLogin(page) {
   }
 
   if (!enabled.length) { log('没有启用的方案，结束'); process.exit(0); }
-  if (!ACCOUNT || !PASSWORD) {
-    // Secret 未配置时静默跳过，避免定时任务反复报错；配置后自动开始工作
-    log('未设置 NETEASE_ACCOUNT / NETEASE_PASSWORD Secret，跳过本次运行');
+  if (!SESSION_B64 && (!ACCOUNT || !PASSWORD)) {
+    // 既无凭证也无账密时静默跳过，避免定时任务反复报错；配置后自动开始工作
+    log('未设置 SESSION_STATE / NETEASE_ACCOUNT / NETEASE_PASSWORD，跳过本次运行');
     process.exit(0);
   }
 
@@ -210,14 +205,14 @@ async function doLogin(page) {
 
   // 凭证模式：优先用本地登录保存的 cookies（SESSION_STATE Secret），失效时告警提醒重新登录
   if (SESSION_B64) {
-    let state;
+    let storage;
     try {
-      state = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
+      storage = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
     } catch (e) {
       await sendWecom('❌ **搜索监控**\nSESSION_STATE Secret 格式错误（不是合法的 base64/JSON）。请重新执行本地登录助手。');
       await browser.close(); process.exit(1);
     }
-    const ctx = await browser.newContext({ storageState: state, userAgent: UA, viewport: { width: 1280, height: 800 } });
+    const ctx = await browser.newContext({ storageState: storage, userAgent: UA, viewport: { width: 1280, height: 800 } });
     const page = await ctx.newPage();
     await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2500);
