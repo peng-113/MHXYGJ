@@ -1,15 +1,15 @@
 {
-  "rev": 1,
-  "updatedAt": "2026-11-17T00:00:00.000Z",
+  "rev": 1794896056085,
+  "updatedAt": "2026-11-17T06:14:16.085Z",
   "schemes": [
     {
       "id": "sch_example",
       "name": "示例方案（改完后请停用或删除）",
       "enabled": true,
       "criteria": {
-        "school": "11",
-        "level_min": "109",
-        "price_max": "2000000"
+        "serverid": "215",
+        "price_max": "1500000",
+        "zhuang_zhi": "10,20,30,40,50,60,70,80,90"
       }
     }
   ]
