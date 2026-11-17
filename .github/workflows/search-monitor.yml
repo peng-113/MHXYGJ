@@ -2,7 +2,7 @@ name: search-monitor
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '17,47 * * * *'
   workflow_dispatch: {}
 
 permissions:
