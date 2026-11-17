@@ -1,0 +1,50 @@
+name: search-monitor
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: search-monitor
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-1
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run monitor
+        env:
+          NETEASE_ACCOUNT: ${{ secrets.NETEASE_ACCOUNT }}
+          NETEASE_PASSWORD: ${{ secrets.NETEASE_PASSWORD }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: node scripts/monitor.js
+
+      - name: Commit state
+        run: |
+          git config user.name "monitor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add search-state.json
+          git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
+          git push
