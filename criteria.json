@@ -7,6 +7,7 @@
       "name": "百宠修化圣",
       "enabled": true,
       "criteria": {
+        "serverid": "215",
         "price_max": "2000000",
         "bb_expt_total": "100",
         "zhuang_zhi": "10,20,30,40,50,60,70,80,90"

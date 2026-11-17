@@ -330,8 +330,28 @@
       updateCounters();
       toast(cur().enabled ? '方案已启用' : '方案已停用');
     });
-    $('btn-save-local').addEventListener('click', () => { collectCriteria(); saveLocal(); toast('已存本机'); updateCounters(); });
-    $('btn-save-cloud').addEventListener('click', async () => { collectCriteria(); saveLocal(); $('btn-save-cloud').disabled = true; await pushCloud(); $('btn-save-cloud').disabled = false; });
+    const saveSummary = () => {
+      const c = cur().criteria;
+      const parts = [];
+      if (c.serverid) {
+        let hit = null;
+        SERVERS.forEach((a) => a.servers.forEach((s) => { if (String(s.id) === String(c.serverid)) hit = a.name + '-' + s.name; }));
+        parts.push('区服:' + (hit || c.serverid));
+      } else parts.push('区服:全部');
+      if (c.price_max) parts.push('≤' + parseInt(c.price_max, 10) / 100 + '元');
+      if (c.bb_expt_total) parts.push('宠修≥' + c.bb_expt_total);
+      if (c.zhuang_zhi) parts.push('化圣' + (c.zhuang_zhi.split(',').length >= 9 ? '全阶' : ''));
+      return '已保存（' + parts.join(' · ') + '）';
+    };
+    $('btn-save-local').addEventListener('click', () => { collectCriteria(); saveLocal(); toast(saveSummary()); updateCounters(); });
+    $('btn-save-cloud').addEventListener('click', async () => {
+      collectCriteria(); saveLocal();
+      if ($('f-area') && $('f-area').value && !$('f-serverid').value) toast('⚠️ 已选大区但未选具体服务器，区服条件未生效');
+      $('btn-save-cloud').disabled = true;
+      const ok = await pushCloud();
+      $('btn-save-cloud').disabled = false;
+      if (ok !== false) toast(saveSummary());
+    });
     $('btn-save-token').addEventListener('click', () => {
       const v = $('gh-token').value.trim();
       if (v) { localStorage.setItem(TOKEN_KEY, v); toast('Token 已保存'); }
