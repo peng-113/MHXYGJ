@@ -39,6 +39,7 @@ jobs:
           NETEASE_ACCOUNT: ${{ secrets.NETEASE_ACCOUNT }}
           NETEASE_PASSWORD: ${{ secrets.NETEASE_PASSWORD }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          SESSION_STATE: ${{ secrets.SESSION_STATE }}
         run: node scripts/monitor.js
 
       - name: Commit state

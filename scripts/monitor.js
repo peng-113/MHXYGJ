@@ -21,6 +21,7 @@ const FORM_URL = HOME + '/cgi-bin/xyq_overall_search.py?act=show_search_role_for
 const ACCOUNT = process.env.NETEASE_ACCOUNT || '';
 const PASSWORD = process.env.NETEASE_PASSWORD || '';
 const WEBHOOK = process.env.WECOM_WEBHOOK || '';
+const SESSION_B64 = process.env.SESSION_STATE || '';
 const DRY_RUN = process.env.DRY_RUN === '1';
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
@@ -49,6 +50,11 @@ function loadJson(file, def) {
 function money(fen) {
   const n = Number(fen) / 100;
   return n >= 10000 ? (n / 10000).toFixed(1) + '万' : String(Math.round(n));
+}
+
+/** 搜索接口成功判定（实测成功返回 status:1 / status_code:OK） */
+function isOk(res) {
+  return res && (res.status_code === 'OK' || res.status === 0 || res.status === 1);
 }
 
 function resultLine(r) {
@@ -200,8 +206,34 @@ async function doLogin(page) {
 
   let { chromium } = require('playwright');
   const browser = await chromium.launch({ headless: true });
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+  // 凭证模式：优先用本地登录保存的 cookies（SESSION_STATE Secret），失效时告警提醒重新登录
+  if (SESSION_B64) {
+    let state;
+    try {
+      state = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
+    } catch (e) {
+      await sendWecom('❌ **搜索监控**\nSESSION_STATE Secret 格式错误（不是合法的 base64/JSON）。请重新执行本地登录助手。');
+      await browser.close(); process.exit(1);
+    }
+    const ctx = await browser.newContext({ storageState: state, userAgent: UA, viewport: { width: 1280, height: 800 } });
+    const page = await ctx.newPage();
+    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2500);
+    const probe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
+    log('凭证探测 status:', probe.status, probe.status_code || '');
+    if (!isOk(probe)) {
+      log('登录凭证已失效');
+      await sendWecom('⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手（完成后更新 SESSION_STATE Secret），监控会自动恢复。');
+      await browser.close();
+      process.exit(1);
+    }
+    return await runSearch(ctx, enabled, state, browser);
+  }
+
   const ctx = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    userAgent: UA,
     viewport: { width: 1280, height: 800 },
   });
   const page = await ctx.newPage();
@@ -218,7 +250,7 @@ async function doLogin(page) {
       // 页面文本判定可能误判，用一次真实搜索探测兜底
       const reprobe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
       log('登录后探测 status:', reprobe.status, reprobe.status_code || '');
-      loggedIn = reprobe.status === 0;
+      loggedIn = isOk(reprobe);
     }
     if (!loggedIn) {
       await sendWecom('❌ **搜索监控登录失败**\n自动登录未成功（可能需要验证码或账号密码有误）。请检查 Secret 或人工登录确认。\n本次未执行搜索。');
@@ -227,12 +259,17 @@ async function doLogin(page) {
     }
   }
 
+  return await runSearch(ctx, enabled, state, browser);
+})();
+
+/** 逐方案搜索 → 去重 → 推送新结果 → 写状态文件 */
+async function runSearch(ctx, enabled, state, browser) {
   const allNew = [];
   let fatal = null;
   for (const scheme of enabled) {
     try {
       const res = await searchOnce(ctx, scheme.criteria, 1);
-      if (res.status !== 0) {
+      if (!isOk(res)) {
         log(`方案「${scheme.name}」搜索失败:`, res.msg || res.status);
         if (res.status_code === 'SESSION_TIMEOUT') { fatal = '会话失效'; break; }
         continue;
@@ -273,4 +310,4 @@ async function doLogin(page) {
   fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, updatedAt: new Date().toISOString() }, null, 2) + '\n');
   log('状态已写入，待提交');
   process.exit(0);
-})();
+}
