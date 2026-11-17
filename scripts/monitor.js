@@ -62,7 +62,7 @@ function alertOnce(state, key, hours, msg) {
   const last = state.alerts[key] || 0;
   if (Date.now() - last < hours * 3600e3) { log('告警冷却中，跳过:', key); return; }
   state.alerts[key] = Date.now();
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
   sendWecom(msg);
 }
 
@@ -276,6 +276,7 @@ async function doLogin(page) {
 /** 逐方案搜索 → 去重 → 推送新结果 → 写状态文件 */
 async function runSearch(ctx, enabled, state, browser) {
   const allNew = [];
+  const current = []; // 每方案当前在售列表（用于每日/手动汇总）
   let fatal = null;
   for (const scheme of enabled) {
     try {
@@ -290,8 +291,10 @@ async function runSearch(ctx, enabled, state, browser) {
       if (!list.length) {
         // 0 结果也提示（12h 去重），让用户知道方案在跑只是没货
         alertOnce(state, 'empty_' + scheme.id, 12, `ℹ️ **搜索监控**\n方案「${scheme.name}」本轮搜索 0 条结果（监控正常运行，当前条件下暂无在售角色）。`);
+        current.push({ scheme, list: [] });
         continue;
       }
+      current.push({ scheme, list });
       const seen = new Set(state.seen[scheme.id] || []);
       const fresh = list.filter((r) => r.game_ordersn && !seen.has(r.game_ordersn));
       if (fresh.length) {
@@ -323,7 +326,26 @@ async function runSearch(ctx, enabled, state, browser) {
     log('没有新结果');
   }
 
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  // 每日汇总（北京时间 09 点首轮）+ 手动强制汇总（FORCE_DIGEST=1）
+  const bjHour = (new Date().getUTCHours() + 8) % 24;
+  const bjDate = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const needDigest = process.env.FORCE_DIGEST === '1' || (bjHour === 9 && state.digestDate !== bjDate);
+  if (needDigest && current.length) {
+    let md = '📋 **藏宝阁监控·当前在售汇总**\n';
+    current.forEach(({ scheme, list }) => {
+      md += `\n—— 方案「${scheme.name}」（在售 ${list.length} 条）——\n`;
+      if (!list.length) { md += '当前无符合条件角色\n'; return; }
+      md += list.slice(0, 5).map(resultLine).join('\n\n');
+      if (list.length > 5) md += `\n…等共 ${list.length} 条`;
+      md += '\n';
+    });
+    await sendWecom(md);
+    state.digestDate = bjDate;
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+    log('汇总已发送');
+  }
+
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
   log('状态已写入，待提交');
   process.exit(0);
 }

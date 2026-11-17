@@ -3,13 +3,18 @@ name: search-monitor
 on:
   schedule:
     - cron: '7,37 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: '立刻推送当前在售汇总'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
 
 concurrency:
-  group: search-monitor
+  group: search-monitor-${{ github.event.inputs.digest == 'true' && 'manual' || 'main' }}
   cancel-in-progress: false
 
 jobs:
@@ -40,9 +45,12 @@ jobs:
           NETEASE_PASSWORD: ${{ secrets.NETEASE_PASSWORD }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           SESSION_STATE: ${{ secrets.SESSION_STATE }}
+          FORCE_DIGEST: ${{ github.event.inputs.digest == 'true' && '1' || '' }}
         run: |
-          for i in $(seq 1 10); do
-            echo "===== 第 $i/10 轮 $(date -u +%H:%M) UTC ====="
+          ROUNDS=$([ "$FORCE_DIGEST" = "1" ] && echo 1 || echo 10)
+          echo "本次轮数: $ROUNDS"
+          for i in $(seq 1 $ROUNDS); do
+            echo "===== 第 $i/$ROUNDS 轮 $(date -u +%H:%M) UTC ====="
             node scripts/monitor.js || echo "本轮退出码 $?，继续下一轮"
             git config user.name "monitor-bot"
             git config user.email "actions@users.noreply.github.com"
@@ -50,7 +58,7 @@ jobs:
             git add search-state.json 2>/dev/null || true
             git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
             git push || true
-            if [ $i -lt 10 ]; then
+            if [ $i -lt "$ROUNDS" ]; then
               # 休眠到下一个固定触发点（每小时第 7 / 37 分，避开整点拥堵时段）
               M=$(date -u +%M); S=$(date -u +%S)
               if [ "$M" -lt 07 ]; then SLEEP_S=$(( (7 - 10#$M) * 60 - 10#$S + 10 ));
@@ -64,7 +72,7 @@ jobs:
       - name: Chain next run
         env:
           CHAIN_TOKEN: ${{ secrets.MONITOR_PAT }}
-        if: always()
+        if: always() && github.event.inputs.digest != 'true'
         run: |
           if [ -z "$CHAIN_TOKEN" ]; then
             echo "未配置 MONITOR_PAT，无法接力（等待 cron 兜底）"
