@@ -160,11 +160,18 @@ async function doLogin(page) {
   });
   log('提交登录:', clicked || '未找到按钮');
   await page.waitForTimeout(9000);
+  // 诊断：登录 iframe 里的提示/报错文本
+  const loginMsg = await target.evaluate(() => (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '');
+  log('登录页当前文本:', loginMsg);
   // 回到藏宝阁主页验证
   await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(2500);
   const ok = await isLoggedIn(page);
-  log('登录结果:', ok ? '成功' : '失败');
+  const userInfo = await page.evaluate(() => {
+    const el = document.querySelector('.userInfo') || document.body;
+    return (el.innerText || '').replace(/\s+/g, ' ').slice(0, 80);
+  }).catch(() => '');
+  log('登录结果:', ok ? '成功' : '失败', '| 用户区文本:', userInfo);
   return ok;
 }
 
@@ -206,7 +213,14 @@ async function doLogin(page) {
   log('探测结果 status:', probe.status, probe.status_code || '');
   if (probe.status === 2 || probe.status_code === 'SESSION_TIMEOUT' || probe.status === -1) {
     const ok = await doLogin(page).catch((e) => { log('登录异常:', e.message); return false; });
+    let loggedIn = ok;
     if (!ok) {
+      // 页面文本判定可能误判，用一次真实搜索探测兜底
+      const reprobe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
+      log('登录后探测 status:', reprobe.status, reprobe.status_code || '');
+      loggedIn = reprobe.status === 0;
+    }
+    if (!loggedIn) {
       await sendWecom('❌ **搜索监控登录失败**\n自动登录未成功（可能需要验证码或账号密码有误）。请检查 Secret 或人工登录确认。\n本次未执行搜索。');
       await browser.close();
       process.exit(1);
