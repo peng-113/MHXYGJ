@@ -1,14 +1,24 @@
 {
-  "rev": 1794898330904,
-  "updatedAt": "2026-11-17T06:52:10.904Z",
+  "rev": 1794904931419,
+  "updatedAt": "2026-11-17T08:42:11.419Z",
   "schemes": [
     {
-      "id": "sch_example",
-      "name": "示例方案（改完后请停用或删除）",
+      "id": "sch_mwkc50ufgvgk",
+      "name": "百宠修化圣",
+      "enabled": true,
+      "criteria": {
+        "price_max": "2000000",
+        "bb_expt_total": "100",
+        "zhuang_zhi": "10,20,30,40,50,60,70,80,90"
+      }
+    },
+    {
+      "id": "sch_mwkg17pb8mlm",
+      "name": "纯化圣",
       "enabled": true,
       "criteria": {
         "serverid": "215",
-        "price_max": "2000000",
+        "price_max": "1500000",
         "bb_expt_total": "100",
         "zhuang_zhi": "10,20,30,40,50,60,70,80,90"
       }
