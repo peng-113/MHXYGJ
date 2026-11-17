@@ -1,0 +1,16 @@
+{
+  "rev": 1,
+  "updatedAt": "2026-11-17T00:00:00.000Z",
+  "schemes": [
+    {
+      "id": "sch_example",
+      "name": "示例方案（改完后请停用或删除）",
+      "enabled": false,
+      "criteria": {
+        "school": "11",
+        "level_min": "109",
+        "price_max": "2000000"
+      }
+    }
+  ]
+}

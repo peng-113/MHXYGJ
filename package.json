@@ -1,0 +1,12 @@
+{
+  "name": "mhxygj",
+  "version": "1.0.0",
+  "private": true,
+  "description": "梦幻西游藏宝阁账号估值 + 搜索监控",
+  "scripts": {
+    "monitor": "node scripts/monitor.js"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

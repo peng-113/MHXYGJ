@@ -1,0 +1,176 @@
+/**
+ * 藏宝阁全服搜索 · 字段配置（第一批：基本情况/角色属性/角色修炼/角色技能/其他条件）
+ * 字典来源：官网 overall_search_role.js + 表单页 + CBG_GAME_CONFIG（2026-11 逆向）
+ * criteria 直接使用官网 args 键名，定时任务拿到后原样拼进搜索请求。
+ * 字段类型：
+ *   min      ≥ 数字输入
+ *   range    区间（min/max 两个输入）
+ *   select   下拉单选（options: [value, label]）
+ *   multi    多选按钮组（options: [value, label]，值为逗号拼接）
+ *   radio    单选按钮组
+ *   jiyuan   机缘特殊控件（toggle 两个 + 总和输入）
+ *   huasheng 化圣特殊控件（radio + 化圣境界下拉）
+ *   server   服务器选择（两级：大区 → 服务器，可多选服务器）
+ */
+(function (root) {
+  const MHY = root.MHY || (root.MHY = {});
+  MHY.SEARCH_FIELDS = {
+    enums: {
+      schools: [
+        ['1', '大唐官府'], ['2', '化生寺'], ['3', '女儿村'], ['4', '方寸山'], ['5', '天宫'],
+        ['6', '普陀山'], ['7', '龙宫'], ['8', '五庄观'], ['9', '狮驼岭'], ['10', '魔王寨'],
+        ['11', '阴曹地府'], ['12', '盘丝洞'], ['13', '神木林'], ['14', '凌波城'], ['15', '无底洞'],
+        ['16', '女魃墓'], ['17', '天机城'], ['18', '花果山'], ['19', '东海渊'], ['20', '九黎城'], ['21', '弥勒山'],
+      ],
+      roles: [
+        ['1', '逍遥生'], ['2', '剑侠客'], ['3', '飞燕女'], ['4', '英女侠'], ['5', '巨魔王'], ['6', '虎头怪'],
+        ['7', '狐美人'], ['8', '骨精灵'], ['9', '神天兵'], ['10', '龙太子'], ['11', '舞天姬'], ['12', '玄彩娥'],
+        ['201', '偃无师'], ['203', '巫蛮儿'], ['205', '杀破狼'], ['207', '鬼潇潇'], ['208', '影精灵'],
+        ['209', '羽灵神'], ['211', '桃夭夭'], ['212', '孙小圣'],
+      ],
+      oriRace: [['1', '人'], ['2', '魔'], ['3', '仙']],
+      attrPoint: [
+        ['', '不限'], ['cor', '体质'], ['res', '耐力'], ['str', '力量'], ['mag', '魔力'], ['spe', '敏捷'],
+        ['corres', '体耐'], ['strcor', '力体'], ['strmag', '力魔'], ['strres', '力耐'], ['strspe', '力敏'],
+        ['magcor', '魔体'], ['magres', '魔耐'], ['magspe', '魔敏'], ['specor', '敏体'], ['speres', '敏耐'],
+      ],
+      house: [['', '不限'], ['0', '无'], ['1', '普通'], ['2', '华宅'], ['3', '豪宅'], ['4', '华宅(带阁楼)'], ['5', '豪宅(带阁楼)'], ['6', '金屋玉宅'], ['7', '洞天福地']],
+      tingyuan: [['', '不限'], ['0', '无'], ['1', '初级'], ['2', '中级'], ['3', '高级'], ['4', '大型庭院'], ['5', '农家小院'], ['6', '园林水榭'], ['7', '欢乐童年'], ['8', '梦幻雪乡'], ['9', '青丘魅影'], ['10', '苏州园林'], ['11', '琉光梦境']],
+      muchang: [['', '不限'], ['0', '无'], ['1', '初级'], ['2', '中级'], ['3', '高级']],
+      niceid: [['', '不限'], ['1,2,3', '是'], ['2,3', '土豪金'], ['3', '梦幻西游']],
+      serverType: [['1', '1年以内服'], ['2', '1到3年服'], ['3', '3年以上服']],
+      huashengLevel: [['', '不限'], ['10', '化圣一'], ['20', '化圣二'], ['30', '化圣三'], ['40', '化圣四'], ['50', '化圣五'], ['60', '化圣六'], ['70', '化圣七'], ['80', '化圣八'], ['90', '化圣九']],
+      community: [['', '不限'], ['1', '有']],
+      married: [['', '不限'], ['0', '未婚'], ['1', '已婚']],
+      tongpao: [['', '不限'], ['0', '否'], ['1', '是']],
+    },
+    categories: [
+      {
+        id: 'basic', title: '基本情况', fields: [
+          { key: 'serverid', label: '选择服务器', type: 'server' },
+          { key: 'school', label: '门派', type: 'select', options: 'schools' },
+          { key: 'school_change_list', label: '历史门派（含 0=无历史门派）', type: 'multi', options: 'schools', extra: [['0', '无历史门派']] },
+          { key: 'race', label: '角色', type: 'multi', options: 'roles' },
+          { key: 'ori_race', label: '原始种族', type: 'multi', options: 'oriRace' },
+          { key: 'level', label: '人物等级', type: 'range', unit: '级', quick: [['59', '59'], ['69', '69'], ['89', '89'], ['109', '109'], ['129', '129'], ['155', '155'], ['159', '159'], ['175', '175']] },
+          { key: 'price', label: '价格', type: 'range', unit: '元', price: true },
+          { key: 'sum_exp', label: '角色总经验', type: 'range', unit: '亿' },
+          { key: 'zhuang_zhi', label: '飞升/渡劫/化圣', type: 'huasheng' },
+          { key: 'server_type', label: '开服时间', type: 'multi', options: 'serverType' },
+        ],
+      },
+      {
+        id: 'attrs', title: '角色属性', fields: [
+          { key: 'shang_hai', label: '伤害', type: 'min' },
+          { key: 'ming_zhong', label: '命中', type: 'min' },
+          { key: 'ling_li', label: '灵力', type: 'min' },
+          { key: 'fang_yu', label: '防御', type: 'min' },
+          { key: 'hp', label: '气血', type: 'min' },
+          { key: 'speed', label: '速度', type: 'min' },
+          { key: 'fa_shang', label: '法伤', type: 'min' },
+          { key: 'fa_fang', label: '法防', type: 'min' },
+          { key: 'qian_neng_guo', label: '潜能果数', type: 'min' },
+          { key: 'jiyuan', label: '机缘（属性总和）', type: 'jiyuan' },
+          { key: 'attr_point_strategy', label: '属性点保存方案', type: 'select', options: 'attrPoint' },
+        ],
+      },
+      {
+        id: 'expt', title: '角色修炼', fields: [
+          { key: 'expt_gongji', label: '攻击修炼', type: 'min' },
+          { key: 'expt_fangyu', label: '防御修炼', type: 'min' },
+          { key: 'expt_fashu', label: '法术修炼', type: 'min' },
+          { key: 'expt_kangfa', label: '抗法修炼', type: 'min' },
+          { key: 'expt_total', label: '修炼总和', type: 'min' },
+          { key: 'max_expt_gongji', label: '攻击上限', type: 'min' },
+          { key: 'max_expt_fangyu', label: '防御上限', type: 'min' },
+          { key: 'max_expt_fashu', label: '法术上限', type: 'min' },
+          { key: 'max_expt_kangfa', label: '抗法上限', type: 'min' },
+          { key: 'expt_lieshu', label: '猎术修炼（不计入总和）', type: 'min' },
+          { key: 'bb_expt_gongji', label: '攻击控制', type: 'min' },
+          { key: 'bb_expt_fangyu', label: '防御控制', type: 'min' },
+          { key: 'bb_expt_fashu', label: '法术控制', type: 'min' },
+          { key: 'bb_expt_kangfa', label: '抗法控制', type: 'min' },
+          { key: 'bb_expt_total', label: '宠修总和', type: 'min' },
+          { key: 'skill_drive_pet', label: '育兽术（不计入宠修总和）', type: 'min' },
+        ],
+      },
+      {
+        id: 'skills', title: '角色技能', fields: [
+          { key: 'school_skill_num', label: '师门技能数（任意 N 个）', type: 'select', options: [['', '不限'], ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6'], ['7', '7']] },
+          { key: 'school_skill_level', label: '师门技能等级', type: 'min' },
+          { key: 'use_original_school_skill_level', label: '包含符石、法宝影响', type: 'select', options: [['', '不限'], ['1', '是'], ['0', '否']] },
+          { key: 'lin_shi_fu', label: '临时符技能', type: 'min' },
+          { key: 'qian_yuan_dan', label: '乾元丹个数', type: 'min' },
+          { key: 'smith_skill', label: '打造熟练度', type: 'min' },
+          { key: 'sew_skill', label: '裁缝熟练度', type: 'min' },
+          { key: 'skill_qiang_shen', label: '强身术', type: 'min' },
+          { key: 'skill_shensu', label: '神速', type: 'min' },
+          { key: 'skill_qiang_zhuang', label: '强壮', type: 'min' },
+          { key: 'skill_ming_xiang', label: '冥想', type: 'min' },
+          { key: 'skill_anqi', label: '暗器技巧', type: 'min' },
+          { key: 'skill_dazao', label: '打造技巧', type: 'min' },
+          { key: 'skill_caifeng', label: '裁缝技巧', type: 'min' },
+          { key: 'skill_qiaojiang', label: '巧匠之术', type: 'min' },
+          { key: 'skill_lianjin', label: '炼金术', type: 'min' },
+          { key: 'skill_yangsheng', label: '养生之道', type: 'min' },
+          { key: 'skill_pengren', label: '烹饪技巧', type: 'min' },
+          { key: 'skill_zhongyao', label: '中药医理', type: 'min' },
+          { key: 'skill_lingshi', label: '灵石技巧', type: 'min' },
+          { key: 'skill_jianshen', label: '健身术', type: 'min' },
+          { key: 'skill_taoli', label: '逃离技巧', type: 'min' },
+          { key: 'skill_zhuibu', label: '追捕技巧', type: 'min' },
+          { key: 'skill_ronglian', label: '熔炼技巧', type: 'min' },
+          { key: 'skill_cuiling', label: '淬灵之术', type: 'min' },
+          { key: 'skill_wind_sense', label: '风之感应', type: 'min' },
+          { key: 'skill_rain_sense', label: '雨之感应', type: 'min' },
+          { key: 'skill_snow_sense', label: '雪之感应', type: 'min' },
+          { key: 'skill_danyuan', label: '丹元济会（剧情）', type: 'min' },
+          { key: 'skill_bianhua', label: '变化之术（剧情）', type: 'min' },
+          { key: 'skill_xianling', label: '仙灵店铺（剧情）', type: 'min' },
+          { key: 'skill_jianzhu', label: '建筑之术（剧情）', type: 'min' },
+          { key: 'skill_miaoshou', label: '妙手空空（剧情）', type: 'min' },
+          { key: 'skill_huoyan', label: '火眼金睛（剧情）', type: 'min' },
+          { key: 'skill_baoshi', label: '宝石工艺（剧情）', type: 'min' },
+          { key: 'skill_qimen', label: '奇门遁甲（剧情）', type: 'min' },
+          { key: 'skill_gudong', label: '古董评估（剧情）', type: 'min' },
+          { key: 'skill_tiaoxi', label: '调息（剧情）', type: 'min' },
+          { key: 'skill_dazuo', label: '打坐（剧情）', type: 'min' },
+          { key: 'skill_hanmo', label: '翰墨之道（剧情）', type: 'min' },
+          { key: 'skill_danqing', label: '丹青之道（剧情）', type: 'min' },
+        ],
+      },
+      {
+        id: 'other', title: '其他条件', fields: [
+          { key: 'xian_yu', label: '仙玉', type: 'min' },
+          { key: 'cash', label: '金钱', type: 'min' },
+          { key: 'upexp', label: '当前经验（亿）', type: 'min' },
+          { key: 'badness', label: '善恶', type: 'min' },
+          { key: 'school_offer', label: '门贡', type: 'min' },
+          { key: 'org_offer', label: '帮贡', type: 'min' },
+          { key: 'cheng_jiu', label: '成就', type: 'min' },
+          { key: 'body_caiguo', label: '身上染色折算彩果数', type: 'min' },
+          { key: 'all_caiguo', label: '所有染色折算彩果数', type: 'min' },
+          { key: 'box_caiguo', label: '保存染色方案数', type: 'min' },
+          { key: 'clothes_num', label: '锦衣数量', type: 'min' },
+          { key: 'energy', label: '精力', type: 'min' },
+          { key: 'pride', label: '人气', type: 'min' },
+          { key: 'sheng_yu_ling_you', label: '剩余灵佑次数', type: 'min' },
+          { key: 'is_niceid_new', label: '靓号ID', type: 'select', options: 'niceid' },
+          { key: 'learn_cash', label: '储备金', type: 'min' },
+          { key: 'pet_extend_num', label: '召唤兽栏扩展个数', type: 'min' },
+          { key: 'baggage_extend_num', label: '行囊扩展个数', type: 'min' },
+          { key: 'rider_exgrow_full_num', label: '满成长坐骑数', type: 'min' },
+          { key: 'sword_score', label: '剑会积分', type: 'min' },
+          { key: 'hero_score', label: '比武积分', type: 'min' },
+          { key: 'sbook_skill_num', label: '召唤兽心得技能', type: 'min' },
+          { key: 'has_community', label: '社区', type: 'select', options: 'community' },
+          { key: 'fangwu_level', label: '房屋', type: 'select', options: 'house' },
+          { key: 'tingyuan_level', label: '庭院', type: 'select', options: 'tingyuan' },
+          { key: 'muchang_level', label: '牧场', type: 'select', options: 'muchang' },
+          { key: 'is_married', label: '婚否', type: 'select', options: 'married' },
+          { key: 'is_tongpao', label: '同袍', type: 'select', options: 'tongpao' },
+        ],
+      },
+    ],
+  };
+})(typeof window !== 'undefined' ? window : globalThis);

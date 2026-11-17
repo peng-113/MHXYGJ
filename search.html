@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>藏宝阁搜索监控 · 条件筛选</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { padding-bottom: calc(var(--bar) + 24px); }
+    .scheme-bar { display: flex; gap: 8px; align-items: center; padding: 10px 12px 0; flex-wrap: wrap; }
+    .scheme-bar select { flex: 1; min-width: 120px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); padding: 0 8px; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+    .chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 13px; background: var(--surface); color: var(--text-2); cursor: pointer; user-select: none; }
+    .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+    .fld-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+    .fld-row:last-child { border-bottom: none; }
+    .fld-row > .f-label { font-size: 13px; color: var(--text-2); min-width: 108px; }
+    .fld-row input[type="number"], .fld-row input[type="text"], .fld-row select {
+      height: 34px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+      color: var(--text); padding: 0 8px; font-size: 14px; min-width: 90px; flex: 0 1 110px;
+    }
+    .fld-row .unit { font-size: 12px; color: var(--text-3); }
+    .fld-row .sep { color: var(--text-3); font-size: 12px; }
+    .quick-row { display: flex; flex-wrap: wrap; gap: 4px; }
+    .quick-row .chip { padding: 3px 9px; font-size: 12px; }
+    .sr-card h2 { display: flex; justify-content: space-between; align-items: center; }
+    .sr-card h2 .clear-cat { font-size: 12px; color: var(--text-3); font-weight: 400; cursor: pointer; }
+    .server-cascade { display: flex; gap: 8px; flex-wrap: wrap; }
+    .server-cascade select { flex: 1 1 140px; }
+    .footer-note { padding: 8px 12px; }
+    .search-footer {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+      background: var(--surface); border-top: 1px solid var(--line);
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      display: flex; gap: 8px; align-items: center; justify-content: space-between;
+    }
+    .sf-meta { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+    .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--bar) + 60px); background: rgba(0,0,0,.75); color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 13px; z-index: 99; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    details.cat { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); margin: 10px 12px; overflow: hidden; }
+    details.cat summary { padding: 12px 14px; font-weight: 600; font-size: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none; }
+    details.cat summary::-webkit-details-marker { display: none; }
+    details.cat summary .cnt { font-size: 12px; color: var(--accent); font-weight: 500; }
+    details.cat .cat-body { padding: 2px 14px 12px; }
+    details.cat[open] summary { border-bottom: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span>搜索监控 · 条件筛选</div>
+    <div class="actions">
+      <a class="btn ghost small" href="./">估值</a>
+    </div>
+  </header>
+
+  <div class="scheme-bar">
+    <select id="scheme-select"></select>
+    <button class="btn ghost small" id="btn-scheme-new">新建</button>
+    <button class="btn ghost small" id="btn-scheme-del">删除</button>
+    <label class="chip" id="scheme-enabled" title="启用后定时任务会搜索此方案">☑ 启用</label>
+  </div>
+  <div class="footer-note hint" id="cloud-note">正在从云端拉取条件…</div>
+
+  <div id="cats"></div>
+
+  <div class="card" style="margin:10px 12px;">
+    <h2>监控说明</h2>
+    <p class="hint">保存到云端后，定时任务（每 30 分钟）会按每个<strong>已启用</strong>的方案自动登录藏宝阁搜索，新出现的符合条件的角色会推送到企业微信群。</p>
+    <p class="hint">同一方案的登录凭证保存在 GitHub Secret 中，不会出现在任何页面或文件里。</p>
+    <div class="row">
+      <input type="password" id="gh-token" placeholder="GitHub Token（与估值页共用）" style="flex:1;min-width:180px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 8px;background:var(--surface);color:var(--text);">
+      <button class="btn ghost small" id="btn-save-token">记住Token</button>
+    </div>
+  </div>
+
+  <div class="search-footer">
+    <div class="sf-meta" id="sf-meta">—</div>
+    <div class="row">
+      <button class="btn ghost" id="btn-save-local">存本机</button>
+      <button class="btn primary" id="btn-save-cloud">保存到云端</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="js/search/servers.js"></script>
+  <script src="js/search/fields.js"></script>
+  <script src="js/search/app.js"></script>
+</body>
+</html>
