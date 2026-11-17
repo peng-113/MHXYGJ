@@ -15,7 +15,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -34,22 +34,39 @@ jobs:
       - name: Install chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run monitor
+      - name: Monitor loop
         env:
           NETEASE_ACCOUNT: ${{ secrets.NETEASE_ACCOUNT }}
           NETEASE_PASSWORD: ${{ secrets.NETEASE_PASSWORD }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           SESSION_STATE: ${{ secrets.SESSION_STATE }}
-        run: node scripts/monitor.js
-
-      - name: Commit state
         run: |
-          if [ ! -f search-state.json ]; then
-            echo "状态文件不存在（本次无监控运行），跳过提交"
+          for i in $(seq 1 11); do
+            echo "===== 第 $i/11 轮 $(date -u +%H:%M) UTC ====="
+            node scripts/monitor.js || echo "本轮退出码 $?，继续下一轮"
+            git config user.name "monitor-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git pull --rebase origin main || true
+            git add search-state.json 2>/dev/null || true
+            git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
+            git push || true
+            if [ $i -lt 11 ]; then
+              echo "休眠 29 分钟…"
+              sleep 1740
+            fi
+          done
+
+      - name: Chain next run
+        env:
+          CHAIN_TOKEN: ${{ secrets.MONITOR_PAT }}
+        if: always()
+        run: |
+          if [ -z "$CHAIN_TOKEN" ]; then
+            echo "未配置 MONITOR_PAT，无法接力（等待 cron 兜底）"
             exit 0
           fi
-          git config user.name "monitor-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add search-state.json
-          git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
-          git push
+          curl -s -X POST -o /dev/null -w "接力触发: %{http_code}\n" \
+            -H "Authorization: token $CHAIN_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/search-monitor.yml/dispatches" \
+            -d '{"ref":"main"}'

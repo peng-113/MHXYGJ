@@ -57,6 +57,15 @@ function isOk(res) {
   return res && (res.status_code === 'OK' || res.status === 0 || res.status === 1);
 }
 
+/** 同类告警 N 小时内只发一次（循环模式下防止刷屏），状态持久化到状态文件 */
+function alertOnce(state, key, hours, msg) {
+  const last = state.alerts[key] || 0;
+  if (Date.now() - last < hours * 3600e3) { log('告警冷却中，跳过:', key); return; }
+  state.alerts[key] = Date.now();
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  sendWecom(msg);
+}
+
 function resultLine(r) {
   const name = r.equip_name || r.name || '未知角色';
   // 金额按实际售价精确显示（price_desc 为官方标价，如 "14850.00"）
@@ -191,6 +200,7 @@ async function doLogin(page) {
 
   const state = loadJson(STATE_FILE, { seen: {} });
   if (!state.seen || typeof state.seen !== 'object') state.seen = {};
+  if (!state.alerts || typeof state.alerts !== 'object') state.alerts = {};
 
   if (DRY_RUN) {
     enabled.forEach((s) => log('方案', s.name, '条件:', JSON.stringify(s.criteria)));
@@ -215,7 +225,7 @@ async function doLogin(page) {
     try {
       storage = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
     } catch (e) {
-      await sendWecom('❌ **搜索监控**\nSESSION_STATE Secret 格式错误（不是合法的 base64/JSON）。请重新执行本地登录助手。');
+      alertOnce(state, 'sessfmt', 12, '❌ **搜索监控**\nSESSION_STATE Secret 格式错误。请重新执行本地登录助手。');
       await browser.close(); process.exit(1);
     }
     const ctx = await browser.newContext({ storageState: storage, userAgent: UA, viewport: { width: 1280, height: 800 } });
@@ -226,7 +236,7 @@ async function doLogin(page) {
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
       log('登录凭证已失效');
-      await sendWecom('⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手（完成后更新 SESSION_STATE Secret），监控会自动恢复。');
+      alertOnce(state, 'cred', 12, '⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手，监控会自动恢复。');
       await browser.close();
       process.exit(1);
     }
@@ -254,7 +264,7 @@ async function doLogin(page) {
       loggedIn = isOk(reprobe);
     }
     if (!loggedIn) {
-      await sendWecom('❌ **搜索监控登录失败**\n自动登录未成功（可能需要验证码或账号密码有误）。请检查 Secret 或人工登录确认。\n本次未执行搜索。');
+      alertOnce(state, 'login', 12, '❌ **搜索监控登录失败**\n自动登录未成功。本次未执行搜索。');
       await browser.close();
       process.exit(1);
     }
@@ -291,7 +301,7 @@ async function runSearch(ctx, enabled, state, browser) {
   await browser.close();
 
   if (fatal) {
-    await sendWecom('❌ **搜索监控会话失效**\n登录会话被服务端拒绝，本次未完成搜索。请检查账号状态。');
+    alertOnce(state, 'session', 6, '❌ **搜索监控会话失效**\n本次未完成搜索。');
     process.exit(1);
   }
 
@@ -308,7 +318,7 @@ async function runSearch(ctx, enabled, state, browser) {
     log('没有新结果');
   }
 
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, updatedAt: new Date().toISOString() }, null, 2) + '\n');
   log('状态已写入，待提交');
   process.exit(0);
 }
