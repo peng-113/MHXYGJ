@@ -99,7 +99,13 @@ async function isLoggedIn(page) {
 async function findPassFrame(page) {
   const frames = page.frames();
   for (const f of frames) {
-    const has = await f.evaluate(() => !!document.querySelector('input[name=password],input[name=email]')).catch(() => false);
+    // 只认"当前可见"的账号/密码输入框（隐藏 tab 里的同名输入框不算）
+    const has = await f.evaluate(() => {
+      const vis = (el) => el && el.offsetParent !== null && el.getBoundingClientRect().height > 0;
+      const u = document.querySelector('input[name=email]');
+      const p = document.querySelector('input[name=password]');
+      return vis(u) || vis(p);
+    }).catch(() => false);
     if (has) return f;
   }
   return null;
