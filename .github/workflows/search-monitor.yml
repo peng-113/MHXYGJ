@@ -43,6 +43,10 @@ jobs:
 
       - name: Commit state
         run: |
+          if [ ! -f search-state.json ]; then
+            echo "状态文件不存在（本次无监控运行），跳过提交"
+            exit 0
+          fi
           git config user.name "monitor-bot"
           git config user.email "actions@users.noreply.github.com"
           git add search-state.json
