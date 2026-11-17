@@ -5,7 +5,7 @@
     {
       "id": "sch_example",
       "name": "示例方案（改完后请停用或删除）",
-      "enabled": false,
+      "enabled": true,
       "criteria": {
         "school": "11",
         "level_min": "109",
