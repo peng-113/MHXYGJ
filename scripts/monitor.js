@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CRITERIA_FILE = path.join(__dirname, '..', 'criteria.json');
+const PET_FILE = path.join(__dirname, '..', 'pet-criteria.json');
 const STATE_FILE = path.join(__dirname, '..', 'search-state.json');
 const SEARCH_URL = 'https://xyq.cbg.163.com/cgi-bin/recommend.py';
 const SEARCH_TYPE = 'overall_search_role';
@@ -88,10 +89,10 @@ function resultLine(r) {
 }
 
 /** 用已登录的浏览器上下文请求一次搜索（JSONP） */
-async function searchOnce(ctx, criteria, pageNo) {
+async function searchOnce(ctx, criteria, pageNo, searchType) {
   const qs = new URLSearchParams();
   qs.set('act', 'recommd_by_role');
-  qs.set('search_type', SEARCH_TYPE);
+  qs.set('search_type', searchType || SEARCH_TYPE);
   qs.set('page', String(pageNo || 1));
   qs.set('count', '15');
   qs.set('_', String(Date.now()));
@@ -196,19 +197,22 @@ async function doLogin(page) {
     console.error('criteria.json 缺失或格式错误'); process.exit(1);
   }
   const enabled = criteriaData.schemes.filter((s) => s.enabled);
-  log(`共 ${criteriaData.schemes.length} 个方案，启用 ${enabled.length} 个`);
+  const petData = loadJson(PET_FILE, null);
+  const petEnabled = (petData && Array.isArray(petData.schemes)) ? petData.schemes.filter((s) => s.enabled) : [];
+  log(`共 ${criteriaData.schemes.length} 个角色方案（启用 ${enabled.length}），${petData ? petData.schemes.length : 0} 个召唤兽方案（启用 ${petEnabled.length}）`);
 
   const state = loadJson(STATE_FILE, { seen: {} });
   if (!state.seen || typeof state.seen !== 'object') state.seen = {};
   if (!state.alerts || typeof state.alerts !== 'object') state.alerts = {};
 
   if (DRY_RUN) {
-    enabled.forEach((s) => log('方案', s.name, '条件:', JSON.stringify(s.criteria)));
-    await sendWecom('🧪 **搜索监控 DRY-RUN 测试**\n链路连通，webhook 正常。\n启用方案数：' + enabled.length);
+    enabled.forEach((s) => log('角色方案', s.name, '条件:', JSON.stringify(s.criteria)));
+    petEnabled.forEach((s) => log('召唤兽方案', s.name, '条件:', JSON.stringify(s.criteria)));
+    await sendWecom('🧪 **搜索监控 DRY-RUN 测试**\n链路连通，webhook 正常。\n启用角色方案数：' + enabled.length + '，召唤兽方案数：' + petEnabled.length);
     process.exit(0);
   }
 
-  if (!enabled.length) { log('没有启用的方案，结束'); process.exit(0); }
+  if (!enabled.length && !petEnabled.length) { log('没有启用的方案，结束'); process.exit(0); }
   if (!SESSION_B64 && (!ACCOUNT || !PASSWORD)) {
     // 既无凭证也无账密时静默跳过，避免定时任务反复报错；配置后自动开始工作
     log('未设置 SESSION_STATE / NETEASE_ACCOUNT / NETEASE_PASSWORD，跳过本次运行');
@@ -240,7 +244,7 @@ async function doLogin(page) {
       await browser.close();
       process.exit(1);
     }
-    return await runSearch(ctx, enabled, state, browser);
+    return await runSearch(ctx, enabled, petEnabled, state, browser);
   }
 
   const ctx = await browser.newContext({
@@ -270,42 +274,41 @@ async function doLogin(page) {
     }
   }
 
-  return await runSearch(ctx, enabled, state, browser);
+  return await runSearch(ctx, enabled, petEnabled, state, browser);
 })();
 
-/** 逐方案搜索 → 去重 → 推送新结果 → 写状态文件 */
-async function runSearch(ctx, enabled, state, browser) {
+/** 逐方案搜索（角色 + 召唤兽）→ 去重 → 推送新结果 → 写状态文件 */
+async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
   const allNew = [];
   const current = []; // 每方案当前在售列表（用于每日/手动汇总）
   let fatal = null;
-  for (const scheme of enabled) {
-    try {
-      const res = await searchOnce(ctx, scheme.criteria, 1);
-      if (!isOk(res)) {
-        log(`方案「${scheme.name}」搜索失败:`, res.msg || res.status);
-        if (res.status_code === 'SESSION_TIMEOUT') { fatal = '会话失效'; break; }
-        continue;
+  async function runGroup(schemes, searchType, seenPrefix, kindLabel) {
+    for (const scheme of schemes) {
+      try {
+        const res = await searchOnce(ctx, scheme.criteria, 1, searchType);
+        if (!isOk(res)) {
+          log(`方案「${scheme.name}」(${kindLabel}) 搜索失败:`, res.msg || res.status);
+          if (res.status_code === 'SESSION_TIMEOUT') { fatal = '会话失效'; break; }
+          continue;
+        }
+        const list = res.equip_list || [];
+        log(`方案「${scheme.name}」(${kindLabel}) 返回 ${list.length} 条`);
+        current.push({ scheme, list, kindLabel });
+        const seenKey = seenPrefix + scheme.id;
+        const seen = new Set(state.seen[seenKey] || []);
+        const fresh = list.filter((r) => r.game_ordersn && !seen.has(r.game_ordersn));
+        if (fresh.length) {
+          state.seen[seenKey] = [...seen, ...fresh.map((r) => r.game_ordersn)].slice(-500);
+          allNew.push({ scheme, fresh, kindLabel });
+        }
+      } catch (e) {
+        log('方案执行异常:', e.message);
       }
-      const list = res.equip_list || [];
-      log(`方案「${scheme.name}」返回 ${list.length} 条`);
-      if (!list.length) {
-        // 0 结果不再单独推送（避免打扰），运行状态由每日 9 点汇总体现
-        log(`方案「${scheme.name}」0 条结果`);
-        current.push({ scheme, list: [] });
-        continue;
-      }
-      current.push({ scheme, list });
-      const seen = new Set(state.seen[scheme.id] || []);
-      const fresh = list.filter((r) => r.game_ordersn && !seen.has(r.game_ordersn));
-      if (fresh.length) {
-        state.seen[scheme.id] = [...seen, ...fresh.map((r) => r.game_ordersn)].slice(-500);
-        allNew.push({ scheme, fresh });
-      }
-    } catch (e) {
-      log('方案执行异常:', e.message);
+      await new Promise((r) => setTimeout(r, 3000 + Math.random() * 2000)); // 温和轮询
     }
-    await new Promise((r) => setTimeout(r, 3000 + Math.random() * 2000)); // 温和轮询
   }
+  await runGroup(roleSchemes, SEARCH_TYPE, '', '角色');
+  if (!fatal && petSchemes.length) await runGroup(petSchemes, 'overall_search_pet', 'pet_', '召唤兽');
   await browser.close();
 
   if (fatal) {
@@ -314,9 +317,9 @@ async function runSearch(ctx, enabled, state, browser) {
   }
 
   if (allNew.length) {
-    let md = '🔔 **藏宝阁监控发现新角色**\n';
-    allNew.forEach(({ scheme, fresh }) => {
-      md += `\n—— 方案「${scheme.name}」（新 ${fresh.length} 个）——\n`;
+    let md = '🔔 **藏宝阁监控发现新上架**\n';
+    allNew.forEach(({ scheme, fresh, kindLabel }) => {
+      md += `\n—— ${kindLabel}方案「${scheme.name}」（新 ${fresh.length} 个）——\n`;
       md += fresh.slice(0, 8).map(resultLine).join('\n\n');
       if (fresh.length > 8) md += `\n…等共 ${fresh.length} 个`;
       md += '\n';
@@ -332,8 +335,8 @@ async function runSearch(ctx, enabled, state, browser) {
   const needDigest = process.env.FORCE_DIGEST === '1' || (bjHour === 9 && state.digestDate !== bjDate);
   if (needDigest && current.length) {
     let md = '📋 **藏宝阁监控·当前在售汇总**\n';
-    current.forEach(({ scheme, list }) => {
-      md += `\n—— 方案「${scheme.name}」（在售 ${list.length} 条）——\n`;
+    current.forEach(({ scheme, list, kindLabel }) => {
+      md += `\n—— ${kindLabel}方案「${scheme.name}」（在售 ${list.length} 条）——\n`;
       if (!list.length) { md += '今日 0 条，暂无符合条件角色（✅ 监控正常运行）\n'; return; }
       md += list.slice(0, 5).map(resultLine).join('\n\n');
       if (list.length > 5) md += `\n…等共 ${list.length} 条`;
