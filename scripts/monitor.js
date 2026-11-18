@@ -289,8 +289,8 @@ async function runSearch(ctx, enabled, state, browser) {
       const list = res.equip_list || [];
       log(`方案「${scheme.name}」返回 ${list.length} 条`);
       if (!list.length) {
-        // 0 结果也提示（12h 去重），让用户知道方案在跑只是没货
-        alertOnce(state, 'empty_' + scheme.id, 12, `ℹ️ **搜索监控**\n方案「${scheme.name}」本轮搜索 0 条结果（监控正常运行，当前条件下暂无在售角色）。`);
+        // 0 结果不再单独推送（避免打扰），运行状态由每日 9 点汇总体现
+        log(`方案「${scheme.name}」0 条结果`);
         current.push({ scheme, list: [] });
         continue;
       }
@@ -334,7 +334,7 @@ async function runSearch(ctx, enabled, state, browser) {
     let md = '📋 **藏宝阁监控·当前在售汇总**\n';
     current.forEach(({ scheme, list }) => {
       md += `\n—— 方案「${scheme.name}」（在售 ${list.length} 条）——\n`;
-      if (!list.length) { md += '当前无符合条件角色\n'; return; }
+      if (!list.length) { md += '今日 0 条，暂无符合条件角色（✅ 监控正常运行）\n'; return; }
       md += list.slice(0, 5).map(resultLine).join('\n\n');
       if (list.length > 5) md += `\n…等共 ${list.length} 条`;
       md += '\n';
