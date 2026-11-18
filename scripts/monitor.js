@@ -28,7 +28,10 @@ const DRY_RUN = process.env.DRY_RUN === '1';
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 async function sendWecom(md) {
-  if (!WEBHOOK) { log('未配置 WECOM_WEBHOOK，跳过通知'); return false; }
+  if (!WEBHOOK) {
+    if (process.env.DEBUG_MD) log('DEBUG_MD 消息内容:\n' + md);
+    log('未配置 WECOM_WEBHOOK，跳过通知'); return false;
+  }
   try {
     const res = await fetch(WEBHOOK, {
       method: 'POST',
@@ -203,6 +206,21 @@ async function doLogin(page) {
 
   const state = loadJson(STATE_FILE, { seen: {} });
   if (!state.seen || typeof state.seen !== 'object') state.seen = {};
+  // seen 结构：{ [seenKey]: { [game_ordersn]: 上次售价(分) } }；旧版为数组，迁移为对象（价格未知记 0，不触发降价提醒）
+  Object.keys(state.seen).forEach((k) => {
+    if (Array.isArray(state.seen[k])) {
+      const m = {};
+      state.seen[k].forEach((sn) => { m[sn] = 0; });
+      state.seen[k] = m;
+    }
+  });
+  // 修正历史双前缀键：pet_pet_xxx → pet_xxx
+  Object.keys(state.seen).forEach((k) => {
+    if (k.indexOf('pet_pet_') === 0) {
+      state.seen['pet_' + k.slice(8)] = state.seen[k];
+      delete state.seen[k];
+    }
+  });
   if (!state.alerts || typeof state.alerts !== 'object') state.alerts = {};
 
   if (DRY_RUN) {
@@ -280,6 +298,7 @@ async function doLogin(page) {
 /** 逐方案搜索（角色 + 召唤兽）→ 去重 → 推送新结果 → 写状态文件 */
 async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
   const allNew = [];
+  const allDrops = []; // 价格变动提醒（仅降价）
   const current = []; // 每方案当前在售列表（用于每日/手动汇总）
   let fatal = null;
   async function runGroup(schemes, searchType, seenPrefix, kindLabel) {
@@ -294,13 +313,33 @@ async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
         const list = res.equip_list || [];
         log(`方案「${scheme.name}」(${kindLabel}) 返回 ${list.length} 条`);
         current.push({ scheme, list, kindLabel });
-        const seenKey = seenPrefix + scheme.id;
-        const seen = new Set(state.seen[seenKey] || []);
-        const fresh = list.filter((r) => r.game_ordersn && !seen.has(r.game_ordersn));
-        if (fresh.length) {
-          state.seen[seenKey] = [...seen, ...fresh.map((r) => r.game_ordersn)].slice(-500);
-          allNew.push({ scheme, fresh, kindLabel });
+        const seenKey = scheme.id.startsWith(seenPrefix) ? scheme.id : seenPrefix + scheme.id;
+        const seenMap = state.seen[seenKey] || {};
+        const fresh = [];
+        const drops = [];
+        for (const r of list) {
+          if (!r.game_ordersn) continue;
+          const price = Number(r.price) || 0; // 单位：分
+          const prev = seenMap[r.game_ordersn];
+          if (prev === undefined) {
+            fresh.push(r);
+            seenMap[r.game_ordersn] = price;
+          } else if (price > 0 && prev > 0 && price < prev) {
+            drops.push({ r, prev, price });
+            seenMap[r.game_ordersn] = price;
+          } else if (price > 0 && price > prev) {
+            // 涨价只静默更新基价，便于后续降价检测
+            seenMap[r.game_ordersn] = price;
+          }
         }
+        // 容量保护：最多记 500 个订单
+        const snKeys = Object.keys(seenMap);
+        if (snKeys.length > 500) {
+          for (const k of snKeys.slice(0, snKeys.length - 500)) delete seenMap[k];
+        }
+        state.seen[seenKey] = seenMap;
+        if (fresh.length) allNew.push({ scheme, fresh, kindLabel });
+        if (drops.length) allDrops.push({ scheme, drops, kindLabel });
       } catch (e) {
         log('方案执行异常:', e.message);
       }
@@ -327,6 +366,24 @@ async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
     await sendWecom(md);
   } else {
     log('没有新结果');
+  }
+
+  if (allDrops.length) {
+    let md = '📉 **藏宝阁监控·降价提醒**\n';
+    allDrops.forEach(({ scheme, drops, kindLabel }) => {
+      md += `\n—— ${kindLabel}方案「${scheme.name}」（降价 ${drops.length} 个）——\n`;
+      md += drops.slice(0, 8).map(({ r, prev, price }) => {
+        const oldP = money(prev);
+        const newP = r.price_desc ? r.price_desc.replace(/\.?0+$/, '') : money(price);
+        const pct = Math.round((prev - price) / prev * 100);
+        return resultLine(r) + `\n> 💰 ${oldP}元 → **${newP}元**（降 ${pct}%）`;
+      }).join('\n\n');
+      if (drops.length > 8) md += `\n…等共 ${drops.length} 个`;
+      md += '\n';
+    });
+    await sendWecom(md);
+  } else {
+    log('没有降价');
   }
 
   // 每日汇总（北京时间 09 点首轮）+ 手动强制汇总（FORCE_DIGEST=1）
