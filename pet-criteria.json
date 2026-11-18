@@ -1,6 +1,6 @@
 {
-  "rev": 1794967963363,
-  "updatedAt": "2026-11-18T02:12:43.363Z",
+  "rev": 1794969667776,
+  "updatedAt": "2026-11-18T02:41:07.776Z",
   "schemes": [
     {
       "id": "pet_mwlhifjhs7m0",
@@ -12,6 +12,20 @@
         "kindid": "69,75",
         "is_baobao": "1",
         "skill": "405,416,425,404,401,434,411,435"
+      }
+    },
+    {
+      "id": "pet_mwlifrwfcroa",
+      "name": "须弥",
+      "enabled": true,
+      "criteria": {
+        "speed_aptitude_min": "1400",
+        "high_neidan_level": "1",
+        "price_max": "330000",
+        "kindid": "69,75",
+        "is_baobao": "1",
+        "skill": "661,424,577,578,1,422",
+        "high_neidan": "928"
       }
     }
   ]
