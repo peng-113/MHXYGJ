@@ -80,7 +80,8 @@ function resultLine(r) {
   }
   const server = [r.area_name, r.server_name].filter(Boolean).join('-');
   const level = r.level_desc || (r.level != null ? r.level + '级' : '');
-  const url = `${HOME}/equip?s=${r.serverid || r.server_id || ''}&eid=${r.eid}&client_type=web&o`;
+  // 电脑版藏宝阁原网址：equip_detail.py 不会按 UA 跳转到微信手机页（企微内可直接打开）
+  const url = `${HOME}/cgi-bin/equip_detail.py?s=${r.serverid || r.server_id || ''}&eid=${r.eid}&client_type=web&o`;
   let line = `**${name}**（${level}） ${price} ${server}`;
   if (r.desc_sumup) line += `\n> ${r.desc_sumup}`;
   else if (r.highlight) {
