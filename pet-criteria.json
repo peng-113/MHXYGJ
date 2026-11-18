@@ -1,0 +1,18 @@
+{
+  "rev": 1794967963363,
+  "updatedAt": "2026-11-18T02:12:43.363Z",
+  "schemes": [
+    {
+      "id": "pet_mwlhifjhs7m0",
+      "name": "方案一",
+      "enabled": true,
+      "criteria": {
+        "price_max": "600000",
+        "serverid": "215",
+        "kindid": "69,75",
+        "is_baobao": "1",
+        "skill": "405,416,425,404,401,434,411,435"
+      }
+    }
+  ]
+}
