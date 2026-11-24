@@ -10,6 +10,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const CRITERIA_FILE = path.join(__dirname, '..', 'criteria.json');
 const PET_FILE = path.join(__dirname, '..', 'pet-criteria.json');
@@ -50,6 +51,28 @@ async function sendWecom(md) {
     return j.errcode === 0;
   } catch (e) {
     log('通知发送失败:', e.message);
+    return false;
+  }
+}
+
+/** 企微原生图片消息：直接推 PNG buffer（≤2MB），不依赖图床 */
+async function sendWecomImage(buf) {
+  if (!WEBHOOK) { log('未配置 WECOM_WEBHOOK，跳过图片通知'); return false; }
+  if (buf.length > 2 * 1024 * 1024) { log('图片超过 2MB，无法直推'); return false; }
+  try {
+    const res = await fetch(WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        msgtype: 'image',
+        image: { base64: buf.toString('base64'), md5: crypto.createHash('md5').update(buf).digest('hex') },
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    log('图片通知发送:', j.errmsg || res.status);
+    return j.errcode === 0;
+  } catch (e) {
+    log('图片通知失败:', e.message);
     return false;
   }
 }
@@ -384,6 +407,17 @@ async function locateQr(page) {
 
 /** 二维码扫码登录自愈：生成登录二维码 → 推送到企微 → 过期自动点刷新并重推新码 → 等用户手机扫码 */
 async function tryQrLogin(ctx, page) {
+  // 网络诊断：记录登录相关的后台请求/响应（定位二维码状态接口，观察扫码确认后服务端状态变化）
+  page.on('response', async (res) => {
+    try {
+      const u = res.url();
+      if (!/login|qrcode|qr_|scan|check|status|auth|sso|oauth|token/i.test(u)) return;
+      if (/\.(png|jpg|jpeg|js|css|gif|woff|woff2|ico|svg)(\?|$)/.test(u)) return;
+      let body = '';
+      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 400); } catch (e) { body = '(body 读取失败)'; }
+      log('[net]', res.status(), u.slice(0, 140), '|', body);
+    } catch (e) { /* 忽略诊断异常 */ }
+  });
   log('打开登录页（二维码模式）…');
   await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(4000);
@@ -406,10 +440,16 @@ async function tryQrLogin(ctx, page) {
   }
   const png = await qr0.h.screenshot();
   log('二维码截图完成,', png.length, 'bytes');
-  const imgUrl = await uploadImage(png);
-  if (!imgUrl) { log('图床上传失败，无法推送二维码'); return false; }
-  log('二维码已上传:', imgUrl);
-  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n收到后请尽快扫；若提示过期，稍等系统会自动推新码。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+  // 优先企微原生图片消息直推（不依赖图床），失败再走图床兜底
+  const imgOk = await sendWecomImage(png);
+  if (!imgOk) {
+    const imgUrl = await uploadImage(png);
+    if (!imgUrl) { log('二维码推送全部失败'); return false; }
+    log('二维码图床兜底:', imgUrl);
+    await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 用「**网易大神**」App 扫一扫（将军令）确认登录。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+  } else {
+    await sendWecom('📱 **上面这张图就是登录二维码**\n⚠️ 用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n收到后请尽快扫；若提示过期，稍等系统会自动推新码。');
+  }
   // 轮询扫码结果（最长 6 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
   const deadline = Date.now() + 360000;
   let probeCount = 0;
@@ -438,11 +478,17 @@ async function tryQrLogin(ctx, page) {
         if (!st2) return await verifyAndExport(ctx, page);
         const newPng = await st2.h.screenshot();
         if (Buffer.compare(lastPng, newPng) !== 0) {
-          const u2 = await uploadImage(newPng);
-          if (u2) {
-            lastPng = newPng;
-            log('二维码已刷新并重推:', u2);
-            await sendWecom('🔄 **二维码已刷新，以此为准**\n请立刻用「网易大神」App 扫一扫（将军令）确认登录\n![二维码](' + u2 + ')\n> 图片打不开时，复制链接到浏览器打开：' + u2);
+          lastPng = newPng;
+          const ok2 = await sendWecomImage(newPng);
+          if (ok2) {
+            log('二维码已刷新并重推（图片消息）');
+            await sendWecom('🔄 **上面这张是最新二维码，以此为准**\n请立刻用「网易大神」App 扫一扫（将军令）确认登录');
+          } else {
+            const u2 = await uploadImage(newPng);
+            if (u2) {
+              log('二维码已刷新并重推（图床兜底）:', u2);
+              await sendWecom('🔄 **二维码已刷新，以此为准**\n请立刻用「网易大神」App 扫一扫（将军令）确认登录\n![二维码](' + u2 + ')\n> 图片打不开时，复制链接到浏览器打开：' + u2);
+            }
           }
         }
       } catch (e) { /* 二维码元素可能已消失（登录成功跳转中） */ }
