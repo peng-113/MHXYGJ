@@ -399,8 +399,25 @@ async function tryQrLogin(ctx, page) {
   // 轮询扫码结果（最长 6 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
   const deadline = Date.now() + 360000;
   let probeCount = 0;
+  let lastPng = png;
+  let lastQrCheck = Date.now();
   while (Date.now() < deadline) {
     await page.waitForTimeout(5000);
+    // 二维码保鲜检测：登录页二维码约 2-3 分钟自动刷新，每 60s 重新截图，变化了就重推新码
+    if (Date.now() - lastQrCheck > 60000) {
+      lastQrCheck = Date.now();
+      try {
+        const newPng = await qrEl.screenshot();
+        if (Buffer.compare(lastPng, newPng) !== 0) {
+          const u2 = await uploadImage(newPng);
+          if (u2) {
+            lastPng = newPng;
+            log('二维码已刷新并重推:', u2);
+            await sendWecom('🔄 **二维码已刷新，以此为准**\n请立刻用「藏宝阁」App 扫码并确认登录（微信扫无效）\n![二维码](' + u2 + ')\n> 图片打不开时，复制链接到浏览器打开：' + u2);
+          }
+        }
+      } catch (e) { /* 二维码元素可能已消失（登录成功跳转中） */ }
+    }
     // 辅助检测 1：页面跳离登录页
     if (page.url().indexOf('show_login') < 0) return await verifyAndExport(ctx, page);
     // 辅助检测 2：主页用户区不再是"梦幻玩家"
@@ -412,6 +429,15 @@ async function tryQrLogin(ctx, page) {
       const p = await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch(() => ({ status: -1 }));
       log('扫码轮询探测 status:', p.status, p.status_code || '');
       if (isOk(p)) return await verifyAndExport(ctx, page);
+      // 诊断：登录区状态文本（判断二维码是过期/刷新/等待确认）
+      if (probeCount % 12 === 0) {
+        const texts = [];
+        for (const f of page.frames()) {
+          const t = await f.evaluate(() => ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').trim().slice(0, 100)).catch(() => '');
+          if (/二维码|扫码|安全验证|登录|过期|刷新/.test(t)) texts.push(t);
+        }
+        log('登录区状态:', texts.join(' | ').slice(0, 400) || '(无匹配文本)');
+      }
     }
   }
   await sendWecom('⌛ 二维码未在有效期内扫码，监控暂未恢复。30 分钟后会重新推送二维码；也可在 Mac 上双击桌面「刷新藏宝阁登录.command」立即恢复。');
