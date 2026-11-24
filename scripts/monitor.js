@@ -13,6 +13,7 @@ const path = require('path');
 
 const CRITERIA_FILE = path.join(__dirname, '..', 'criteria.json');
 const PET_FILE = path.join(__dirname, '..', 'pet-criteria.json');
+const WATCH_FILE = path.join(__dirname, '..', 'watch-list.json');
 const STATE_FILE = path.join(__dirname, '..', 'search-state.json');
 const SEARCH_URL = 'https://xyq.cbg.163.com/cgi-bin/recommend.py';
 const SEARCH_TYPE = 'overall_search_role';
@@ -62,11 +63,15 @@ function isOk(res) {
 }
 
 /** 同类告警 N 小时内只发一次（循环模式下防止刷屏），状态持久化到状态文件 */
+function saveState(state) {
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, watch: state.watch || {}, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+}
+
 function alertOnce(state, key, hours, msg) {
   const last = state.alerts[key] || 0;
   if (Date.now() - last < hours * 3600e3) { log('告警冷却中，跳过:', key); return; }
   state.alerts[key] = Date.now();
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  saveState(state);
   sendWecom(msg);
 }
 
@@ -113,6 +118,35 @@ async function searchOnce(ctx, criteria, pageNo, searchType) {
 /** 检查登录态（页面顶部是否出现"退出"） */
 async function isLoggedIn(page) {
   return page.evaluate(() => /退出登录|>退出<|切换角色/.test(document.body.innerText));
+}
+
+/** 解析藏宝阁详情链接（PC 与手机版格式）→ { serverid, eid } */
+function parseEquipUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return null;
+  const m = u.match(/\/cgi\/mweb\/equip\/(\d+)\/([A-Za-z0-9_-]+)/);
+  if (m) return { serverid: m[1], eid: m[2] };
+  try {
+    const q = new URL(u, 'https://xyq.cbg.163.com').searchParams;
+    const eid = q.get('eid');
+    const serverid = q.get('s') || q.get('serverid');
+    if (eid && serverid) return { serverid: String(serverid), eid: String(eid) };
+  } catch (e) { /* 非法链接 */ }
+  return null;
+}
+
+/** 查询单条链接的当前售价（手机版详情接口，与登录态同域 cookie） */
+async function fetchWatchPrice(ctx, item) {
+  const REF = `https://xyq-m.cbg.163.com/cgi/mweb/equip/${item.serverid}/${item.eid}`;
+  const TR = encodeURIComponent('{"field_id":"","content_id":""}');
+  const headers = { Referer: REF, 'X-Requested-With': 'XMLHttpRequest' };
+  // 先走一次自动登录刷新 mweb 会话（已登录时无副作用）
+  await ctx.request.get(`https://xyq-m.cbg.163.com/cgi/api/login_auto?client_type=h5&page_session_id=-&traffic_trace=${TR}`, { headers }).catch(() => {});
+  const resp = await ctx.request.post('https://xyq-m.cbg.163.com/cgi/api/get_equip_detail?client_type=h5', {
+    form: { eid: item.eid, serverid: String(item.serverid), h5_device: 'ios', app_client: 'other', exclude_equip_desc: '1', exter: 'direct', traffic_trace: '{"field_id":"","content_id":""}' },
+    headers,
+  });
+  return await resp.json();
 }
 
 /** 账密登录（登录页 show_login.py?act=show_login，网易统一登录 iframe：dl.reg.163.com） */
@@ -203,7 +237,9 @@ async function doLogin(page) {
   const enabled = criteriaData.schemes.filter((s) => s.enabled);
   const petData = loadJson(PET_FILE, null);
   const petEnabled = (petData && Array.isArray(petData.schemes)) ? petData.schemes.filter((s) => s.enabled) : [];
-  log(`共 ${criteriaData.schemes.length} 个角色方案（启用 ${enabled.length}），${petData ? petData.schemes.length : 0} 个召唤兽方案（启用 ${petEnabled.length}）`);
+  const watchData = loadJson(WATCH_FILE, null);
+  const watchItems = (watchData && Array.isArray(watchData.items)) ? watchData.items.filter((i) => i.enabled && i.serverid && i.eid) : [];
+  log(`共 ${criteriaData.schemes.length} 个角色方案（启用 ${enabled.length}），${petData ? petData.schemes.length : 0} 个召唤兽方案（启用 ${petEnabled.length}），${watchData ? watchData.items.length : 0} 条监控链接（启用 ${watchItems.length}）`);
 
   const state = loadJson(STATE_FILE, { seen: {} });
   if (!state.seen || typeof state.seen !== 'object') state.seen = {};
@@ -227,11 +263,12 @@ async function doLogin(page) {
   if (DRY_RUN) {
     enabled.forEach((s) => log('角色方案', s.name, '条件:', JSON.stringify(s.criteria)));
     petEnabled.forEach((s) => log('召唤兽方案', s.name, '条件:', JSON.stringify(s.criteria)));
-    await sendWecom('🧪 **搜索监控 DRY-RUN 测试**\n链路连通，webhook 正常。\n启用角色方案数：' + enabled.length + '，召唤兽方案数：' + petEnabled.length);
+    watchItems.forEach((i) => log('监控链接', i.name || i.eid, 'serverid:', i.serverid, '阈值:', i.threshold + '%'));
+    await sendWecom('🧪 **搜索监控 DRY-RUN 测试**\n链路连通，webhook 正常。\n启用角色方案数：' + enabled.length + '，召唤兽方案数：' + petEnabled.length + '，监控链接数：' + watchItems.length);
     process.exit(0);
   }
 
-  if (!enabled.length && !petEnabled.length) { log('没有启用的方案，结束'); process.exit(0); }
+  if (!enabled.length && !petEnabled.length && !watchItems.length) { log('没有启用的方案或链接，结束'); process.exit(0); }
   if (!SESSION_B64 && (!ACCOUNT || !PASSWORD)) {
     // 既无凭证也无账密时静默跳过，避免定时任务反复报错；配置后自动开始工作
     log('未设置 SESSION_STATE / NETEASE_ACCOUNT / NETEASE_PASSWORD，跳过本次运行');
@@ -263,7 +300,7 @@ async function doLogin(page) {
       await browser.close();
       process.exit(1);
     }
-    return await runSearch(ctx, enabled, petEnabled, state, browser);
+    return await runSearch(ctx, enabled, petEnabled, watchItems, state, browser);
   }
 
   const ctx = await browser.newContext({
@@ -293,11 +330,49 @@ async function doLogin(page) {
     }
   }
 
-  return await runSearch(ctx, enabled, petEnabled, state, browser);
+  return await runSearch(ctx, enabled, petEnabled, watchItems, state, browser);
 })();
 
-/** 逐方案搜索（角色 + 召唤兽）→ 去重 → 推送新结果 → 写状态文件 */
-async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
+/** 监控链接价格对比（可独立测试）：返回 { alert } 或 { alert: null }，同时更新 state.watch */
+function compareWatchItem(state, item, equip) {
+  const price = Number(equip.price) || 0;
+  const prevRec = state.watch[item.id] || {};
+  const prev = Number(prevRec.price) || 0;
+  const label = item.name || equip.equip_name || ('链接 ' + item.eid.slice(-10));
+  if (!equip.price && !equip.equip_name) {
+    // 商品已下架/已售出：只提醒一次
+    if (prevRec.price && !prevRec.gone) {
+      prevRec.gone = true;
+      log(`链接「${label}」已下架/售出`);
+      return { alert: { item, label, gone: true } };
+    }
+    state.watch[item.id] = prevRec;
+    return { alert: null };
+  }
+  if (!prev) {
+    // 首次采集：记录基价，不提醒
+    state.watch[item.id] = { price, name: label };
+    log(`链接「${label}」基价已记录: ${money(price)}元`);
+    return { alert: null };
+  }
+  if (price && prev && price !== prev) {
+    const pct = Math.round((price - prev) / prev * 1000) / 10; // 保留1位小数
+    const threshold = Math.abs(Number(item.threshold) || 5);
+    const up = price > prev;
+    log(`链接「${label}」${up ? '涨' : '跌'} ${pct}%（阈值 ${threshold}%）`);
+    state.watch[item.id] = { price, name: label, gone: false };
+    if (Math.abs(pct) >= threshold) {
+      return { alert: { item, label, prev, price, pct, up } };
+    }
+    return { alert: null };
+  }
+  state.watch[item.id] = Object.assign({}, prevRec, { price: price || prevRec.price, name: label, gone: false });
+  return { alert: null };
+}
+
+/** 逐方案搜索（角色 + 召唤兽）+ 监控链接查价 → 去重/变价对比 → 推送 → 写状态文件 */
+async function runSearch(ctx, roleSchemes, petSchemes, watchItems, state, browser) {
+  if (!state.watch || typeof state.watch !== 'object') state.watch = {};
   const allNew = [];
   const allDrops = []; // 价格变动提醒（仅降价）
   const current = []; // 每方案当前在售列表（用于每日/手动汇总）
@@ -349,6 +424,28 @@ async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
   }
   await runGroup(roleSchemes, SEARCH_TYPE, '', '角色');
   if (!fatal && petSchemes.length) await runGroup(petSchemes, 'overall_search_pet', 'pet_', '召唤兽');
+
+  // ---------- 监控链接价格对比 ----------
+  const watchAlerts = []; // { item, prev, price, pct, up }
+  if (!fatal && watchItems.length) {
+    for (const item of watchItems) {
+      try {
+        const j = await fetchWatchPrice(ctx, item);
+        if (!isOk(j)) {
+          log(`链接「${item.name || item.eid}」查询失败:`, j.msg || j.status);
+          if (j.status_code === 'SESSION_TIMEOUT') { fatal = '会话失效'; break; }
+          await new Promise((r) => setTimeout(r, 3000));
+          continue;
+        }
+        const equip = j.equip || {};
+        const r = compareWatchItem(state, item, equip);
+        if (r.alert) watchAlerts.push(r.alert);
+      } catch (e) {
+        log('链接查询异常:', item.eid, e.message);
+      }
+      await new Promise((r) => setTimeout(r, 2500 + Math.random() * 1500));
+    }
+  }
   await browser.close();
 
   if (fatal) {
@@ -387,6 +484,23 @@ async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
     log('没有降价');
   }
 
+  // 监控链接价格变化提醒
+  if (watchAlerts.length) {
+    let md = '📊 **链接价格监控提醒**\n';
+    watchAlerts.slice(0, 10).forEach(({ item, label, prev, price, pct, up, gone }) => {
+      const link = `${HOME}/cgi-bin/equip_detail.py?s=${item.serverid}&eid=${encodeURIComponent(item.eid)}&client_type=web&o`;
+      if (gone) {
+        md += `\n**${label}**\n> ⚠️ 已下架或已售出\n[查看详情](${link})\n`;
+      } else {
+        md += `\n**${label}**\n> 💰 ${money(prev)}元 → **${price ? money(price) + '元' : '价格未知'}**（${up ? '涨' : '跌'} ${Math.abs(pct)}%，阈值 ${item.threshold}%）\n[查看详情](${link})\n`;
+      }
+    });
+    if (watchAlerts.length > 10) md += `\n…等共 ${watchAlerts.length} 条`;
+    await sendWecom(md);
+  } else {
+    log('监控链接无达到阈值的价格变化');
+  }
+
   // 每日汇总（北京时间 09 点首轮）+ 手动强制汇总（FORCE_DIGEST=1）
   const bjHour = (new Date().getUTCHours() + 8) % 24;
   const bjDate = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
@@ -400,13 +514,29 @@ async function runSearch(ctx, roleSchemes, petSchemes, state, browser) {
       if (list.length > 5) md += `\n…等共 ${list.length} 条`;
       md += '\n';
     });
+    if (Object.keys(state.watch).length) {
+      md += '\n—— 监控链接最新价 ——\n';
+      watchItems.forEach((item) => {
+        const rec = state.watch[item.id] || {};
+        const label = item.name || rec.name || ('链接 ' + item.eid.slice(-10));
+        const st = rec.gone ? '已下架/售出' : (rec.price ? fen2yuan(rec.price) + '元' : '待采集');
+        md += `> ${label}：${st}（阈值 ${item.threshold}%）\n`;
+      });
+      md += '\n';
+    }
     await sendWecom(md);
     state.digestDate = bjDate;
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+    saveState(state);
     log('汇总已发送');
   }
 
-  fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  saveState(state);
   log('状态已写入，待提交');
   process.exit(0);
+}
+
+/** 分 → 万元/元 显示 */
+function fen2yuan(fen) {
+  const n = Number(fen) / 100;
+  return n >= 10000 ? (n / 10000).toFixed(2).replace(/\.?0+$/, '') + '万' : String(Math.round(n * 100) / 100);
 }

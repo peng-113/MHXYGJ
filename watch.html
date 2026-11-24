@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>链接价格监控</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { padding-bottom: calc(var(--bar) + 24px); }
+    .fld-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+    .fld-row:last-child { border-bottom: none; }
+    .fld-row > .f-label { font-size: 13px; color: var(--text-2); min-width: 84px; }
+    .fld-row input[type="number"], .fld-row input[type="text"], .fld-row input[type="url"] {
+      height: 34px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+      color: var(--text); padding: 0 8px; font-size: 14px;
+    }
+    .fld-row .unit { font-size: 12px; color: var(--text-3); }
+    .chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 13px; background: var(--surface); color: var(--text-2); cursor: pointer; user-select: none; }
+    .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+    /* 已添加列表 */
+    .watch-item { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); margin: 10px 12px; padding: 12px 14px; }
+    .watch-item .wi-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .watch-item .wi-name { font-weight: 600; font-size: 15px; }
+    .watch-item .wi-price { font-size: 13px; color: var(--text-2); }
+    .watch-item .wi-url { font-size: 12px; color: var(--text-3); word-break: break-all; margin-top: 4px; }
+    .watch-item .wi-rows { margin-top: 8px; }
+    .watch-item .fld-row { border-bottom: none; padding: 4px 0; }
+    .watch-item .fld-row > .f-label { min-width: 64px; }
+    .wi-off { opacity: .55; }
+    .badge { display: inline-block; font-size: 11px; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; }
+    .badge.ok { background: var(--accent-soft); color: var(--accent); }
+    .badge.gone { background: rgba(255, 99, 71, .12); color: tomato; }
+    .badge.pending { background: var(--line); color: var(--text-2); }
+    .footer-note { padding: 8px 12px; }
+    .search-footer {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+      background: var(--surface); border-top: 1px solid var(--line);
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      display: flex; gap: 8px; align-items: center; justify-content: space-between;
+    }
+    .sf-meta { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+    .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--bar) + 60px); background: rgba(0,0,0,.75); color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 13px; z-index: 99; opacity: 0; transition: opacity .25s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span>链接价格监控</div>
+    <div class="actions">
+      <a class="btn ghost small" href="./">估值</a>
+    </div>
+  </header>
+
+  <div class="card" style="margin:10px 12px;">
+    <h2>添加监控链接</h2>
+    <div class="fld-row">
+      <span class="f-label">藏宝阁链接</span>
+      <input type="url" id="add-url" placeholder="粘贴账号/召唤兽详情页链接" style="flex:1;min-width:200px;">
+    </div>
+    <div class="fld-row">
+      <span class="f-label">备注名</span>
+      <input type="text" id="add-name" placeholder="选填，如：狂豹1号" style="flex:1;min-width:120px;">
+      <span class="f-label" style="min-width:auto">变化率≥</span>
+      <input type="number" id="add-threshold" value="5" min="0.1" step="0.1" style="width:80px;">
+      <span class="unit">%</span>
+      <button class="btn primary small" id="btn-add">添加</button>
+    </div>
+    <p class="hint">支持电脑版链接（equip?s=…&eid=…、equip_detail.py?s=…）和手机版链接（/cgi/mweb/equip/区服/订单）。价格每 30 分钟随定时任务检查一次，变化幅度达到该链接的变化率阈值即推送企微通知；每条链接的阈值可随时修改。</p>
+  </div>
+
+  <div class="footer-note hint" id="cloud-note">正在从云端拉取监控列表…</div>
+  <div id="watch-list"></div>
+
+  <div class="card" style="margin:10px 12px;">
+    <h2>云端同步</h2>
+    <div class="row">
+      <input type="password" id="gh-token" placeholder="GitHub Token（与估值页共用）" style="flex:1;min-width:180px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 8px;background:var(--surface);color:var(--text);">
+      <button class="btn ghost small" id="btn-save-token">记住Token</button>
+    </div>
+  </div>
+
+  <div class="search-footer">
+    <div class="sf-meta" id="sf-meta">—</div>
+    <div class="row">
+      <button class="btn ghost" id="btn-save-local">存本机</button>
+      <button class="btn primary" id="btn-save-cloud">保存到云端</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="js/watch/app.js"></script>
+</body>
+</html>
