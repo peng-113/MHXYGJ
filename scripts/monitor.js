@@ -238,20 +238,28 @@ async function doLogin(page) {
     return '';
   });
   log('提交登录:', clicked || '未找到按钮');
-  await page.waitForTimeout(9000);
-  // 诊断：登录 iframe 里的提示/报错文本
-  const loginMsg = await target.evaluate(() => (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '');
-  log('登录页当前文本:', loginMsg);
-  // 回到藏宝阁主页验证
-  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2500);
-  const ok = await isLoggedIn(page);
-  const userInfo = await page.evaluate(() => {
-    const el = document.querySelector('.userInfo') || document.body;
-    return (el.innerText || '').replace(/\s+/g, ' ').slice(0, 80);
-  }).catch(() => '');
-  log('登录结果:', ok ? '成功' : '失败', '| 用户区文本:', userInfo);
-  return ok;
+  await page.waitForTimeout(12000);
+  // 诊断：登录后各 frame 的提示/报错文本（判断是密码错误、滑块验证还是风控拦截）
+  const diagTexts = [];
+  for (const f of page.frames()) {
+    const t = await f.evaluate(() => ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').trim().slice(0, 150)).catch(() => '');
+    if (t) diagTexts.push('[' + f.url().slice(-45) + '] ' + t);
+  }
+  log('登录后各区域文本:', diagTexts.join(' || ').slice(0, 700) || '(全部为空)');
+  // 回到藏宝阁主页验证（SSO 跳转可能滞后，验证两次）
+  for (let round = 0; round < 2; round++) {
+    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2500);
+    const ok = await isLoggedIn(page);
+    const userInfo = await page.evaluate(() => {
+      const el = document.querySelector('.userInfo') || document.body;
+      return (el.innerText || '').replace(/\s+/g, ' ').slice(0, 80);
+    }).catch(() => '');
+    log('登录结果:', ok ? '成功' : '失败', '| 用户区文本:', userInfo);
+    if (ok) return true;
+    await page.waitForTimeout(4000);
+  }
+  return false;
 }
 
 (async () => {
