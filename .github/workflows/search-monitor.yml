@@ -2,7 +2,7 @@ name: search-monitor
 
 on:
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '4,19,34,49 * * * *'
   workflow_dispatch:
     inputs:
       digest:
@@ -59,12 +59,14 @@ jobs:
             git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
             git push || true
             if [ $i -lt "$ROUNDS" ]; then
-              # 休眠到下一个固定触发点（每小时第 7 / 37 分，避开整点拥堵时段）
+              # 休眠到下一个固定触发点（每小时第 4 / 19 / 34 / 49 分，15 分钟间隔，避开整点拥堵时段）
               M=$(date -u +%M); S=$(date -u +%S)
-              if [ "$M" -lt 07 ]; then SLEEP_S=$(( (7 - 10#$M) * 60 - 10#$S + 10 ));
-              elif [ "$M" -lt 37 ]; then SLEEP_S=$(( (37 - 10#$M) * 60 - 10#$S + 10 ));
-              else SLEEP_S=$(( (67 - 10#$M) * 60 - 10#$S + 10 )); fi
-              echo "休眠 ${SLEEP_S}s 至下一个固定触发点（:07/:37）"
+              NEXT=64
+              for T in 4 19 34 49; do
+                if [ "$T" -gt "$((10#$M))" ]; then NEXT="$T"; break; fi
+              done
+              SLEEP_S=$(( (NEXT - 10#$M) * 60 - 10#$S + 10 ))
+              echo "休眠 ${SLEEP_S}s 至下一个固定触发点（:04/:19/:34/:49）"
               sleep "$SLEEP_S"
             fi
           done

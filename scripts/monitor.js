@@ -1,5 +1,5 @@
 /**
- * 藏宝阁搜索监控（GitHub Actions 每 30 分钟运行）
+ * 藏宝阁搜索监控（GitHub Actions 每 15 分钟运行）
  * 流程：读取 criteria.json 的启用方案 → Playwright 账密登录藏宝阁 →
  *       逐方案请求搜索接口 → 与 search-state.json 对比 → 新结果推企业微信群机器人
  * 环境变量：
@@ -19,6 +19,9 @@ const SEARCH_URL = 'https://xyq.cbg.163.com/cgi-bin/recommend.py';
 const SEARCH_TYPE = 'overall_search_role';
 const HOME = 'https://xyq.cbg.163.com';
 const FORM_URL = HOME + '/cgi-bin/xyq_overall_search.py?act=show_search_role_form';
+// 登录恢复入口提示：登录必须本地完成（滑块验证），双击桌面的 .command 一键登录并自动更新云端凭证
+const LOGIN_HINT = '\n👉 请在 Mac 上双击桌面「刷新藏宝阁登录.command」，在弹出的浏览器中完成登录，云端凭证会自动更新，监控 15 分钟内自动恢复。'
+  + '\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)';
 
 const ACCOUNT = process.env.NETEASE_ACCOUNT || '';
 const PASSWORD = process.env.NETEASE_PASSWORD || '';
@@ -306,7 +309,7 @@ async function doLogin(page) {
     try {
       storage = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
     } catch (e) {
-      await alertOnce(state, 'sessfmt', 12, '❌ **搜索监控**\nSESSION_STATE Secret 格式错误。请重新执行本地登录助手。');
+      await alertOnce(state, 'sessfmt', 12, '❌ **搜索监控**\nSESSION_STATE Secret 格式错误。' + LOGIN_HINT);
       await browser.close(); process.exit(1);
     }
     const ctx = await browser.newContext({ storageState: storage, userAgent: UA, viewport: { width: 1280, height: 800 } });
@@ -317,7 +320,7 @@ async function doLogin(page) {
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
       log('登录凭证已失效');
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手，监控会自动恢复。');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n搜索已暂停，请重新登录恢复监控。' + LOGIN_HINT);
       await browser.close();
       process.exit(1);
     }
@@ -345,7 +348,7 @@ async function doLogin(page) {
       loggedIn = isOk(reprobe);
     }
     if (!loggedIn) {
-      await alertOnce(state, 'login', 12, '❌ **搜索监控登录失败**\n自动登录未成功。本次未执行搜索。');
+      await alertOnce(state, 'login', 12, '❌ **搜索监控登录失败**\n自动登录未成功，本次未执行搜索。' + LOGIN_HINT);
       await browser.close();
       process.exit(1);
     }
@@ -466,7 +469,7 @@ async function runSearch(ctx, roleSchemes, petSchemes, watchItems, state, browse
   await browser.close();
 
   if (fatal) {
-    await alertOnce(state, 'session', 6, '❌ **搜索监控会话失效**\n本次未完成搜索。');
+    await alertOnce(state, 'session', 6, '❌ **搜索监控：会话中途失效**\n本次未完成搜索，请重新登录恢复监控。' + LOGIN_HINT);
     process.exit(1);
   }
 
