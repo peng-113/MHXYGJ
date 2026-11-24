@@ -404,7 +404,7 @@ async function tryQrLogin(ctx, page) {
     const info = await page.evaluate(() => { const el = document.querySelector('.userInfo'); return el ? el.innerText : ''; }).catch(() => '');
     if (info && !/梦幻玩家/.test(info)) return await verifyAndExport(ctx, page);
   }
-  await sendWecom('⌛ 二维码未在有效期内扫码，监控暂未恢复。1 小时后会重新推送二维码；也可在 Mac 上双击桌面「刷新藏宝阁登录.command」立即恢复。');
+  await sendWecom('⌛ 二维码未在有效期内扫码，监控暂未恢复。30 分钟后会重新推送二维码；也可在 Mac 上双击桌面「刷新藏宝阁登录.command」立即恢复。');
   return false;
 }
 
@@ -446,9 +446,9 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
       log('登录凭证已失效，启动二维码扫码自愈…');
-      // 二维码推送限速：1 小时一次，避免没来得及扫码时反复刷屏
+      // 二维码推送限速：30 分钟一次，避免没来得及扫码时反复刷屏
       const lastQr = state.alerts['qrlogin'] || 0;
-      if (Date.now() - lastQr > 3600e3) {
+      if (Date.now() - lastQr > 1800e3) {
         state.alerts['qrlogin'] = Date.now();
         saveState(state);
         const scanned = await tryQrLogin(ctx, page).catch((e) => { log('二维码登录异常:', e.message); return false; });
@@ -460,7 +460,7 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
       } else {
         log('二维码登录冷却中（1 小时），本次跳过');
       }
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已尝试推送扫码二维码（每 1 小时重推一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已尝试推送扫码二维码（每 30 分钟重推一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
       process.exit(1);
     }
