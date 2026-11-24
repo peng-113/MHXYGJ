@@ -9,6 +9,10 @@ on:
         description: '立刻推送当前在售汇总'
         required: false
         default: 'false'
+      account_login:
+        description: '强制账密登录模式（测试自愈）'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
@@ -46,6 +50,7 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           SESSION_STATE: ${{ secrets.SESSION_STATE }}
           FORCE_DIGEST: ${{ github.event.inputs.digest == 'true' && '1' || '' }}
+          USE_ACCOUNT_LOGIN: ${{ github.event.inputs.account_login == 'true' && '1' || '' }}
         run: |
           ROUNDS=$([ "$FORCE_DIGEST" = "1" ] && echo 1 || echo 10)
           echo "本次轮数: $ROUNDS"

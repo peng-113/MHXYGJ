@@ -28,6 +28,7 @@ const PASSWORD = process.env.NETEASE_PASSWORD || '';
 const WEBHOOK = process.env.WECOM_WEBHOOK || '';
 const SESSION_B64 = process.env.SESSION_STATE || '';
 const DRY_RUN = process.env.DRY_RUN === '1';
+const FORCE_ACCOUNT_LOGIN = process.env.USE_ACCOUNT_LOGIN === '1'; // 跳过凭证模式，强制账密登录（测试用）
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -303,8 +304,29 @@ async function doLogin(page) {
   const browser = await chromium.launch({ headless: true });
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-  // 凭证模式：优先用本地登录保存的 cookies（SESSION_STATE Secret），失效时告警提醒重新登录
-  if (SESSION_B64) {
+/** 选一个探测用方案：优先角色方案，否则召唤兽方案 */
+function pickProbe() {
+  if (enabled.length) return { criteria: enabled[0].criteria, type: SEARCH_TYPE };
+  if (petEnabled.length) return { criteria: petEnabled[0].criteria, type: 'overall_search_pet' };
+  return null;
+}
+
+/** 账密自动登录并复验（在同一浏览器上下文里做，成功返回 true） */
+async function autoLogin(page, probeInfo) {
+  const ok = await doLogin(page).catch((e) => { log('自动登录异常:', e.message); return false; });
+  let loggedIn = ok;
+  if (!ok) {
+    // 页面文本判定可能误判，用一次真实搜索探测兜底
+    const reprobe = await searchOnce(page.context(), probeInfo.criteria, 1, probeInfo.type).catch((e) => ({ status: -1, msg: e.message }));
+    log('自动登录后探测 status:', reprobe.status, reprobe.status_code || '', reprobe.msg || '');
+    loggedIn = isOk(reprobe);
+  }
+  return loggedIn;
+}
+
+// 凭证模式：优先用本地登录保存的 cookies（SESSION_STATE Secret），
+// 失效时先自动尝试账密登录自愈（6 小时限速防风控），仍失败才告警
+if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
     let storage;
     try {
       storage = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
@@ -316,11 +338,24 @@ async function doLogin(page) {
     const page = await ctx.newPage();
     await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2500);
-    const probe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
+    const probeInfo = pickProbe();
+    const probe = await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch((e) => ({ status: -1, msg: e.message }));
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
-      log('登录凭证已失效');
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n搜索已暂停，请重新登录恢复监控。' + LOGIN_HINT);
+      log('登录凭证已失效，尝试账密自动登录…');
+      // 限速：距上次自动登录尝试不足 6 小时则不重试，避免频繁登录触发网易风控
+      const lastTry = state.alerts['autologin'] || 0;
+      if (Date.now() - lastTry > 6 * 3600e3) {
+        state.alerts['autologin'] = Date.now();
+        saveState(state);
+        if (await autoLogin(page, probeInfo)) {
+          log('✅ 账密自动登录成功，监控自动恢复');
+          return await runSearch(ctx, enabled, petEnabled, watchItems, state, browser);
+        }
+      } else {
+        log('自动登录冷却中（6 小时限速），本次跳过');
+      }
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已自动尝试账密登录（每 6 小时一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
       process.exit(1);
     }
@@ -336,17 +371,11 @@ async function doLogin(page) {
   await page.waitForTimeout(2500);
 
   // 先探测一次数据接口，未登录则走账密登录
-  let probe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
+  const probeInfo2 = pickProbe();
+  let probe = await searchOnce(ctx, probeInfo2.criteria, 1, probeInfo2.type).catch((e) => ({ status: -1, msg: e.message }));
   log('探测结果 status:', probe.status, probe.status_code || '');
   if (probe.status === 2 || probe.status_code === 'SESSION_TIMEOUT' || probe.status === -1) {
-    const ok = await doLogin(page).catch((e) => { log('登录异常:', e.message); return false; });
-    let loggedIn = ok;
-    if (!ok) {
-      // 页面文本判定可能误判，用一次真实搜索探测兜底
-      const reprobe = await searchOnce(ctx, enabled[0].criteria, 1).catch((e) => ({ status: -1, msg: e.message }));
-      log('登录后探测 status:', reprobe.status, reprobe.status_code || '', reprobe.msg || '');
-      loggedIn = isOk(reprobe);
-    }
+    const loggedIn = await autoLogin(page, probeInfo2);
     if (!loggedIn) {
       await alertOnce(state, 'login', 12, '❌ **搜索监控登录失败**\n自动登录未成功，本次未执行搜索。' + LOGIN_HINT);
       await browser.close();
