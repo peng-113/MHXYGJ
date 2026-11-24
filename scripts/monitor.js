@@ -67,12 +67,12 @@ function saveState(state) {
   fs.writeFileSync(STATE_FILE, JSON.stringify({ seen: state.seen, alerts: state.alerts, watch: state.watch || {}, digestDate: state.digestDate, updatedAt: new Date().toISOString() }, null, 2) + '\n');
 }
 
-function alertOnce(state, key, hours, msg) {
+async function alertOnce(state, key, hours, msg) {
   const last = state.alerts[key] || 0;
   if (Date.now() - last < hours * 3600e3) { log('告警冷却中，跳过:', key); return; }
   state.alerts[key] = Date.now();
   saveState(state);
-  sendWecom(msg);
+  await sendWecom(msg); // 必须等推送完成：调用方常紧随 process.exit，不等待会把消息杀在半路
 }
 
 function resultLine(r) {
@@ -285,7 +285,7 @@ async function doLogin(page) {
     try {
       storage = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
     } catch (e) {
-      alertOnce(state, 'sessfmt', 12, '❌ **搜索监控**\nSESSION_STATE Secret 格式错误。请重新执行本地登录助手。');
+      await alertOnce(state, 'sessfmt', 12, '❌ **搜索监控**\nSESSION_STATE Secret 格式错误。请重新执行本地登录助手。');
       await browser.close(); process.exit(1);
     }
     const ctx = await browser.newContext({ storageState: storage, userAgent: UA, viewport: { width: 1280, height: 800 } });
@@ -296,7 +296,7 @@ async function doLogin(page) {
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
       log('登录凭证已失效');
-      alertOnce(state, 'cred', 12, '⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手，监控会自动恢复。');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控**\n登录凭证已失效，搜索暂停。请在本地重新运行登录助手，监控会自动恢复。');
       await browser.close();
       process.exit(1);
     }
@@ -324,7 +324,7 @@ async function doLogin(page) {
       loggedIn = isOk(reprobe);
     }
     if (!loggedIn) {
-      alertOnce(state, 'login', 12, '❌ **搜索监控登录失败**\n自动登录未成功。本次未执行搜索。');
+      await alertOnce(state, 'login', 12, '❌ **搜索监控登录失败**\n自动登录未成功。本次未执行搜索。');
       await browser.close();
       process.exit(1);
     }
@@ -449,7 +449,7 @@ async function runSearch(ctx, roleSchemes, petSchemes, watchItems, state, browse
   await browser.close();
 
   if (fatal) {
-    alertOnce(state, 'session', 6, '❌ **搜索监控会话失效**\n本次未完成搜索。');
+    await alertOnce(state, 'session', 6, '❌ **搜索监控会话失效**\n本次未完成搜索。');
     process.exit(1);
   }
 
