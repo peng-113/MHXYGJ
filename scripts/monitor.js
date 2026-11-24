@@ -395,7 +395,7 @@ async function tryQrLogin(ctx, page) {
   const imgUrl = await uploadImage(png);
   if (!imgUrl) { log('图床上传失败，无法推送二维码'); return false; }
   log('二维码已上传:', imgUrl);
-  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 必须用手机「藏宝阁」App（或网易大神）扫码并确认登录，微信扫无效。\n约 6 分钟内有效，扫码成功后监控自动恢复，无需其他操作。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 此二维码必须用「**网易大神**」App 的扫一扫（将军令）扫码，登录同一网易账号后确认，**藏宝阁 App 和微信扫均无效**。\n约 6 分钟内有效，扫码成功后监控自动恢复。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
   // 轮询扫码结果（最长 6 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
   const deadline = Date.now() + 360000;
   let probeCount = 0;
@@ -413,7 +413,7 @@ async function tryQrLogin(ctx, page) {
           if (u2) {
             lastPng = newPng;
             log('二维码已刷新并重推:', u2);
-            await sendWecom('🔄 **二维码已刷新，以此为准**\n请立刻用「藏宝阁」App 扫码并确认登录（微信扫无效）\n![二维码](' + u2 + ')\n> 图片打不开时，复制链接到浏览器打开：' + u2);
+            await sendWecom('🔄 **二维码已刷新，以此为准**\n请立刻用「网易大神」App 扫一扫（将军令）确认登录\n![二维码](' + u2 + ')\n> 图片打不开时，复制链接到浏览器打开：' + u2);
           }
         }
       } catch (e) { /* 二维码元素可能已消失（登录成功跳转中） */ }
