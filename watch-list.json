@@ -1,0 +1,24 @@
+{
+  "rev": 1795488795403,
+  "updatedAt": "2026-11-24T02:53:15.403Z",
+  "items": [
+    {
+      "id": "w_mwu3mjfiry5s",
+      "name": "渡劫-百修-LB",
+      "url": "https://xyq.cbg.163.com/equip?s=215&eid=202611231200113-215-FHS9LAJFNRPQ&equip_refer=29&view_loc=my_collect&from_shareid=2105181600128-ZBZJNDHEVZIFQYPJ",
+      "serverid": "215",
+      "eid": "202611231200113-215-FHS9LAJFNRPQ",
+      "threshold": 5,
+      "enabled": true
+    },
+    {
+      "id": "w_mwu3o0lpdw9z",
+      "name": "化圣-满机缘-无锦衣-NE",
+      "url": "https://xyq.cbg.163.com/equip?s=215&eid=202610251700113-215-Q7IJDRAWNL0E&equip_refer=29&view_loc=my_collect&from_shareid=2105181600128-ZBZJNDHEVZIFQYPJ",
+      "serverid": "215",
+      "eid": "202610251700113-215-Q7IJDRAWNL0E",
+      "threshold": 10,
+      "enabled": true
+    }
+  ]
+}
