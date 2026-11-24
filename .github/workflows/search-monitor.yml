@@ -13,6 +13,10 @@ on:
         description: '强制账密登录模式（测试自愈）'
         required: false
         default: 'false'
+      qr_login:
+        description: '强制二维码登录模式（测试自愈）'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
@@ -51,6 +55,7 @@ jobs:
           SESSION_STATE: ${{ secrets.SESSION_STATE }}
           FORCE_DIGEST: ${{ github.event.inputs.digest == 'true' && '1' || '' }}
           USE_ACCOUNT_LOGIN: ${{ github.event.inputs.account_login == 'true' && '1' || '' }}
+          USE_QR_LOGIN: ${{ github.event.inputs.qr_login == 'true' && '1' || '' }}
         run: |
           ROUNDS=$([ "$FORCE_DIGEST" = "1" ] && echo 1 || echo 10)
           echo "本次轮数: $ROUNDS"
@@ -75,6 +80,17 @@ jobs:
               sleep "$SLEEP_S"
             fi
           done
+
+      - name: Refresh SESSION_STATE secret (扫码自愈)
+        if: always()
+        env:
+          GH_PAT: ${{ secrets.MONITOR_PAT }}
+        run: |
+          if [ -f new-session.b64 ]; then
+            python3 scripts/put-secret.py new-session.b64 && rm -f new-session.b64
+          else
+            echo "本次运行没有新的扫码登录凭证"
+          fi
 
       - name: Chain next run
         env:

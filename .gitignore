@@ -2,3 +2,4 @@ node_modules/
 .DS_Store
 session-state.json
 scripts/upload-session.py
+new-session.b64

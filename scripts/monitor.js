@@ -28,7 +28,9 @@ const PASSWORD = process.env.NETEASE_PASSWORD || '';
 const WEBHOOK = process.env.WECOM_WEBHOOK || '';
 const SESSION_B64 = process.env.SESSION_STATE || '';
 const DRY_RUN = process.env.DRY_RUN === '1';
-const FORCE_ACCOUNT_LOGIN = process.env.USE_ACCOUNT_LOGIN === '1'; // 跳过凭证模式，强制账密登录（测试用）
+const FORCE_ACCOUNT_LOGIN = process.env.USE_ACCOUNT_LOGIN === '1'; // 强制账密登录模式（测试用）
+const FORCE_QR_LOGIN = process.env.USE_QR_LOGIN === '1';           // 强制二维码登录模式（测试用）
+const NEW_SESSION_FILE = path.join(__dirname, '..', 'new-session.b64'); // 扫码成功后导出新凭证，workflow 自动更新 Secret
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -319,6 +321,93 @@ function pickProbe() {
   return null;
 }
 
+/** 临时图床上传（免密钥）：返回公网图片 URL，全部失败返回 '' */
+async function uploadImage(buf) {
+  // 首选 sm.ms 匿名上传（国内可达性较好）
+  try {
+    const fd = new FormData();
+    fd.append('smfile', new Blob([buf]), 'qrcode.png');
+    const res = await fetch('https://sm.ms/api/v2/upload', { method: 'POST', body: fd });
+    const j = await res.json();
+    if (j.success && j.data && j.data.url) return j.data.url;
+    log('sm.ms 上传响应:', JSON.stringify(j).slice(0, 200));
+  } catch (e) { log('sm.ms 上传异常:', e.message); }
+  // 备选 tmpfiles.org（保留 1 小时，够扫码用）
+  try {
+    const fd = new FormData();
+    fd.append('file', new Blob([buf]), 'qrcode.png');
+    const res = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fd });
+    const j = await res.json();
+    if (j && j.data && j.data.url) return j.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+  } catch (e) { log('tmpfiles 上传异常:', e.message); }
+  return '';
+}
+
+/** 扫码登录成功后的验证与新凭证导出（workflow 会自动更新 SESSION_STATE Secret） */
+async function verifyAndExport(ctx, page) {
+  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(2500);
+  const ok = await isLoggedIn(page);
+  log('扫码登录验证:', ok ? '成功' : '失败');
+  if (!ok) return false;
+  const storage = await ctx.storageState();
+  fs.writeFileSync(NEW_SESSION_FILE, Buffer.from(JSON.stringify(storage), 'utf8').toString('base64'));
+  log('新凭证已导出到 new-session.b64，workflow 将自动更新云端 Secret');
+  return true;
+}
+
+/** 二维码扫码登录自愈：生成登录二维码 → 推送到企微 → 等用户手机扫码（最长 3.5 分钟） */
+async function tryQrLogin(ctx, page) {
+  log('打开登录页（二维码模式）…');
+  await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4000);
+  // 确保二维码登录 tab 激活（页面默认通常已是）
+  for (const f of page.frames()) {
+    await f.evaluate(() => {
+      const el = [...document.querySelectorAll('a,span,div,li,dt,dd,p')].find((e) => /^二维码登录$/.test((e.textContent || '').trim()) && e.offsetParent !== null);
+      if (el) { el.click(); return true; }
+      return false;
+    }).catch(() => {});
+  }
+  await page.waitForTimeout(2500);
+  // 找二维码元素：img 或 canvas，近似正方形、120-320px
+  let qrEl = null;
+  for (const f of page.frames()) {
+    const handles = await f.$$('img, canvas');
+    for (const h of handles) {
+      const ok = await h.evaluate((e) => {
+        const r = e.getBoundingClientRect();
+        return r.width > 120 && r.width < 320 && Math.abs(r.width - r.height) < 40;
+      }).catch(() => false);
+      if (ok) { qrEl = h; break; }
+    }
+    if (qrEl) break;
+  }
+  if (!qrEl) {
+    for (const f of page.frames()) {
+      const srcs = await f.evaluate(() => [...document.querySelectorAll('img, canvas')].map((e) => e.tagName + ' ' + (e.src || '').slice(0, 60) + ' ' + Math.round(e.getBoundingClientRect().width)).join(' ; ')).catch(() => '');
+      log('frame 二维码候选:', srcs);
+    }
+    return false;
+  }
+  const png = await qrEl.screenshot();
+  log('二维码截图完成,', png.length, 'bytes');
+  const imgUrl = await uploadImage(png);
+  if (!imgUrl) { log('图床上传失败，无法推送二维码'); return false; }
+  log('二维码已上传:', imgUrl);
+  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n请用手机「网易大神」或「藏宝阁」App 扫下方二维码并确认登录（约 3 分钟内有效）\n扫码成功后监控自动恢复，无需其他操作。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+  // 轮询扫码结果（最长 3.5 分钟）：登录成功页面会跳离 show_login
+  const deadline = Date.now() + 210000;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(3000);
+    if (page.url().indexOf('show_login') < 0) return await verifyAndExport(ctx, page);
+    const info = await page.evaluate(() => { const el = document.querySelector('.userInfo'); return el ? el.innerText : ''; }).catch(() => '');
+    if (info && !/梦幻玩家/.test(info)) return await verifyAndExport(ctx, page);
+  }
+  await sendWecom('⌛ 二维码未在有效期内扫码，监控暂未恢复。1 小时后会重新推送二维码；也可在 Mac 上双击桌面「刷新藏宝阁登录.command」立即恢复。');
+  return false;
+}
+
 /** 账密自动登录并复验（在同一浏览器上下文里做，成功返回 true） */
 async function autoLogin(page, probeInfo) {
   const ok = await doLogin(page).catch((e) => { log('自动登录异常:', e.message); return false; });
@@ -347,23 +436,27 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
     await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2500);
     const probeInfo = pickProbe();
-    const probe = await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch((e) => ({ status: -1, msg: e.message }));
+    const probe = FORCE_QR_LOGIN
+      ? { status: -1, msg: 'USE_QR_LOGIN=1 强制二维码模式' }
+      : await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch((e) => ({ status: -1, msg: e.message }));
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
-      log('登录凭证已失效，尝试账密自动登录…');
-      // 限速：距上次自动登录尝试不足 6 小时则不重试，避免频繁登录触发网易风控
-      const lastTry = state.alerts['autologin'] || 0;
-      if (Date.now() - lastTry > 6 * 3600e3) {
-        state.alerts['autologin'] = Date.now();
+      log('登录凭证已失效，启动二维码扫码自愈…');
+      // 二维码推送限速：1 小时一次，避免没来得及扫码时反复刷屏
+      const lastQr = state.alerts['qrlogin'] || 0;
+      if (Date.now() - lastQr > 3600e3) {
+        state.alerts['qrlogin'] = Date.now();
         saveState(state);
-        if (await autoLogin(page, probeInfo)) {
-          log('✅ 账密自动登录成功，监控自动恢复');
+        const scanned = await tryQrLogin(ctx, page).catch((e) => { log('二维码登录异常:', e.message); return false; });
+        if (scanned) {
+          log('✅ 扫码登录成功，监控自动恢复');
           return await runSearch(ctx, enabled, petEnabled, watchItems, state, browser);
         }
+        log('二维码未扫码或已过期');
       } else {
-        log('自动登录冷却中（6 小时限速），本次跳过');
+        log('二维码登录冷却中（1 小时），本次跳过');
       }
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已自动尝试账密登录（每 6 小时一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已尝试推送扫码二维码（每 1 小时重推一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
       process.exit(1);
     }
