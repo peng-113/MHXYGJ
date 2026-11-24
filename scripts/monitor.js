@@ -135,18 +135,39 @@ function parseEquipUrl(url) {
   return null;
 }
 
-/** 查询单条链接的当前售价（手机版详情接口，与登录态同域 cookie） */
+/** 解析电脑版详情页 HTML 中内嵌的 var equip = {...} 数据 */
+function parseEquipDetailHtml(html) {
+  const i = html.indexOf('var equip = {');
+  if (i < 0) return null;
+  const end = html.indexOf('</script>', i);
+  const seg = html.slice(i, end > 0 ? end : i + 8000);
+  const get = (key) => {
+    const m = seg.match(new RegExp('"' + key + '"\\s*:\\s*(?:"([^"]*)"|\'([^\']*)\'|(-?[\\d.]+))'));
+    if (!m) return undefined;
+    return m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
+  };
+  const priceYuan = parseFloat(get('price'));
+  return {
+    equip_name: get('equip_name') || '',
+    price: Number.isFinite(priceYuan) && priceYuan > 0 ? Math.round(priceYuan * 100) : 0, // 元 → 分
+    is_selling: get('is_selling'),
+    expire_time_desc: get('expire_time_desc') || '',
+  };
+}
+
+/** 查询单条链接的当前售价（电脑版详情页，与搜索同域、直接复用登录凭证） */
 async function fetchWatchPrice(ctx, item) {
-  const REF = `https://xyq-m.cbg.163.com/cgi/mweb/equip/${item.serverid}/${item.eid}`;
-  const TR = encodeURIComponent('{"field_id":"","content_id":""}');
-  const headers = { Referer: REF, 'X-Requested-With': 'XMLHttpRequest' };
-  // 先走一次自动登录刷新 mweb 会话（已登录时无副作用）
-  await ctx.request.get(`https://xyq-m.cbg.163.com/cgi/api/login_auto?client_type=h5&page_session_id=-&traffic_trace=${TR}`, { headers }).catch(() => {});
-  const resp = await ctx.request.post('https://xyq-m.cbg.163.com/cgi/api/get_equip_detail?client_type=h5', {
-    form: { eid: item.eid, serverid: String(item.serverid), h5_device: 'ios', app_client: 'other', exclude_equip_desc: '1', exter: 'direct', traffic_trace: '{"field_id":"","content_id":""}' },
-    headers,
+  const resp = await ctx.request.get(`${HOME}/cgi-bin/equip_detail.py?s=${item.serverid}&eid=${encodeURIComponent(item.eid)}&client_type=web&o`, {
+    headers: { Referer: HOME + '/' },
   });
-  return await resp.json();
+  if (resp.status() === 302 || resp.status() === 303) throw new Error('详情页跳转登录（凭证失效）');
+  // 页面为 GBK 编码，需按字节解码
+  const buf = await resp.body();
+  let html;
+  try { html = new TextDecoder('gbk').decode(buf); } catch (e) { html = buf.toString('utf8'); }
+  const equip = parseEquipDetailHtml(html);
+  if (!equip) throw new Error('详情页解析失败（HTTP ' + resp.status() + '）');
+  return equip;
 }
 
 /** 账密登录（登录页 show_login.py?act=show_login，网易统一登录 iframe：dl.reg.163.com） */
@@ -430,18 +451,14 @@ async function runSearch(ctx, roleSchemes, petSchemes, watchItems, state, browse
   if (!fatal && watchItems.length) {
     for (const item of watchItems) {
       try {
-        const j = await fetchWatchPrice(ctx, item);
-        if (!isOk(j)) {
-          log(`链接「${item.name || item.eid}」查询失败:`, j.msg || j.status);
-          if (j.status_code === 'SESSION_TIMEOUT') { fatal = '会话失效'; break; }
-          await new Promise((r) => setTimeout(r, 3000));
-          continue;
-        }
-        const equip = j.equip || {};
+        const equip = await fetchWatchPrice(ctx, item);
         const r = compareWatchItem(state, item, equip);
         if (r.alert) watchAlerts.push(r.alert);
       } catch (e) {
         log('链接查询异常:', item.eid, e.message);
+        if (/跳转登录/.test(e.message)) { fatal = '会话失效'; break; }
+        // 持续解析失败的链接要提醒用户检查（24h 去重），如链接过期或不是有效详情页
+        await alertOnce(state, 'wparse_' + item.id, 24, `⚠️ **链接价格监控**\n链接「${item.name || item.eid.slice(-10)}」无法读取价格（${e.message}）。请到链接监控页检查该链接是否有效。`);
       }
       await new Promise((r) => setTimeout(r, 2500 + Math.random() * 1500));
     }
