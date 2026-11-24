@@ -340,6 +340,17 @@ async function uploadImage(buf) {
     const j = await res.json();
     if (j && j.data && j.data.url) return j.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
   } catch (e) { log('tmpfiles 上传异常:', e.message); }
+  // 再备选 litterbox（catbox 临时图床，直链 1 小时有效）
+  try {
+    const fd = new FormData();
+    fd.append('reqtype', 'fileupload');
+    fd.append('time', '1h');
+    fd.append('fileToUpload', new Blob([buf]), 'qrcode.png');
+    const res = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', { method: 'POST', body: fd });
+    const url = (await res.text()).trim();
+    if (/^https?:\/\//.test(url)) return url;
+    log('litterbox 上传响应:', url.slice(0, 100));
+  } catch (e) { log('litterbox 上传异常:', e.message); }
   return '';
 }
 
@@ -356,7 +367,22 @@ async function verifyAndExport(ctx, page) {
   return true;
 }
 
-/** 二维码扫码登录自愈：生成登录二维码 → 推送到企微 → 等用户手机扫码（最长 3.5 分钟） */
+/** 定位二维码元素：img 或 canvas，近似正方形、120-320px，返回 { f: 所在 frame, h: 元素 } */
+async function locateQr(page) {
+  for (const f of page.frames()) {
+    const handles = await f.$$('img, canvas');
+    for (const h of handles) {
+      const ok = await h.evaluate((e) => {
+        const r = e.getBoundingClientRect();
+        return r.width > 120 && r.width < 320 && Math.abs(r.width - r.height) < 40;
+      }).catch(() => false);
+      if (ok) return { f, h };
+    }
+  }
+  return null;
+}
+
+/** 二维码扫码登录自愈：生成登录二维码 → 推送到企微 → 过期自动点刷新并重推新码 → 等用户手机扫码 */
 async function tryQrLogin(ctx, page) {
   log('打开登录页（二维码模式）…');
   await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -370,32 +396,20 @@ async function tryQrLogin(ctx, page) {
     }).catch(() => {});
   }
   await page.waitForTimeout(2500);
-  // 找二维码元素：img 或 canvas，近似正方形、120-320px
-  let qrEl = null;
-  for (const f of page.frames()) {
-    const handles = await f.$$('img, canvas');
-    for (const h of handles) {
-      const ok = await h.evaluate((e) => {
-        const r = e.getBoundingClientRect();
-        return r.width > 120 && r.width < 320 && Math.abs(r.width - r.height) < 40;
-      }).catch(() => false);
-      if (ok) { qrEl = h; break; }
-    }
-    if (qrEl) break;
-  }
-  if (!qrEl) {
+  const qr0 = await locateQr(page);
+  if (!qr0) {
     for (const f of page.frames()) {
       const srcs = await f.evaluate(() => [...document.querySelectorAll('img, canvas')].map((e) => e.tagName + ' ' + (e.src || '').slice(0, 60) + ' ' + Math.round(e.getBoundingClientRect().width)).join(' ; ')).catch(() => '');
       log('frame 二维码候选:', srcs);
     }
     return false;
   }
-  const png = await qrEl.screenshot();
+  const png = await qr0.h.screenshot();
   log('二维码截图完成,', png.length, 'bytes');
   const imgUrl = await uploadImage(png);
   if (!imgUrl) { log('图床上传失败，无法推送二维码'); return false; }
   log('二维码已上传:', imgUrl);
-  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 此二维码必须用「**网易大神**」App 的扫一扫（将军令）扫码，登录同一网易账号后确认，**藏宝阁 App 和微信扫均无效**。\n约 6 分钟内有效，扫码成功后监控自动恢复。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n收到后请尽快扫；若提示过期，稍等系统会自动推新码。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
   // 轮询扫码结果（最长 6 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
   const deadline = Date.now() + 360000;
   let probeCount = 0;
@@ -403,11 +417,26 @@ async function tryQrLogin(ctx, page) {
   let lastQrCheck = Date.now();
   while (Date.now() < deadline) {
     await page.waitForTimeout(5000);
-    // 二维码保鲜检测：登录页二维码约 2-3 分钟自动刷新，每 60s 重新截图，变化了就重推新码
-    if (Date.now() - lastQrCheck > 60000) {
+    // 二维码保鲜：每 45s 检查一次，二维码过期/被服务端作废就点刷新，重新截图并重推
+    if (Date.now() - lastQrCheck > 45000) {
       lastQrCheck = Date.now();
       try {
-        const newPng = await qrEl.screenshot();
+        const st = await locateQr(page);
+        if (!st) return await verifyAndExport(ctx, page); // 二维码元素消失 → 多半登录成功跳转了
+        const frameTxt = await st.f.evaluate(() => (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '');
+        if (/过期|失效|刷新/.test(frameTxt)) {
+          const clicked = await st.f.evaluate(() => {
+            const el = [...document.querySelectorAll('a,span,div,p,i,em')].find((e) => /刷新/.test(e.textContent || '') && e.offsetParent !== null);
+            if (el) { el.click(); return el.textContent.trim().slice(0, 20); }
+            return '';
+          }).catch(() => '');
+          if (!clicked) await st.h.click().catch(() => {});
+          log('检测到二维码过期，已点刷新:', clicked || '点二维码本体');
+          await page.waitForTimeout(2500);
+        }
+        const st2 = await locateQr(page);
+        if (!st2) return await verifyAndExport(ctx, page);
+        const newPng = await st2.h.screenshot();
         if (Buffer.compare(lastPng, newPng) !== 0) {
           const u2 = await uploadImage(newPng);
           if (u2) {
