@@ -395,14 +395,24 @@ async function tryQrLogin(ctx, page) {
   const imgUrl = await uploadImage(png);
   if (!imgUrl) { log('图床上传失败，无法推送二维码'); return false; }
   log('二维码已上传:', imgUrl);
-  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n请用手机「网易大神」或「藏宝阁」App 扫下方二维码并确认登录（约 3 分钟内有效）\n扫码成功后监控自动恢复，无需其他操作。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
-  // 轮询扫码结果（最长 3.5 分钟）：登录成功页面会跳离 show_login
-  const deadline = Date.now() + 210000;
+  await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 必须用手机「藏宝阁」App（或网易大神）扫码并确认登录，微信扫无效。\n约 6 分钟内有效，扫码成功后监控自动恢复，无需其他操作。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+  // 轮询扫码结果（最长 6 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
+  const deadline = Date.now() + 360000;
+  let probeCount = 0;
   while (Date.now() < deadline) {
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
+    // 辅助检测 1：页面跳离登录页
     if (page.url().indexOf('show_login') < 0) return await verifyAndExport(ctx, page);
+    // 辅助检测 2：主页用户区不再是"梦幻玩家"
     const info = await page.evaluate(() => { const el = document.querySelector('.userInfo'); return el ? el.innerText : ''; }).catch(() => '');
     if (info && !/梦幻玩家/.test(info)) return await verifyAndExport(ctx, page);
+    // 主检测：每 15 秒实测一次搜索接口（每 3 个轮询周期执行 1 次，避免请求过密）
+    if (++probeCount % 3 === 0) {
+      const probeInfo = pickProbe();
+      const p = await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch(() => ({ status: -1 }));
+      log('扫码轮询探测 status:', p.status, p.status_code || '');
+      if (isOk(p)) return await verifyAndExport(ctx, page);
+    }
   }
   await sendWecom('⌛ 二维码未在有效期内扫码，监控暂未恢复。30 分钟后会重新推送二维码；也可在 Mac 上双击桌面「刷新藏宝阁登录.command」立即恢复。');
   return false;
@@ -458,7 +468,7 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
         }
         log('二维码未扫码或已过期');
       } else {
-        log('二维码登录冷却中（1 小时），本次跳过');
+        log('二维码登录冷却中（30 分钟），本次跳过');
       }
       await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已尝试推送扫码二维码（每 30 分钟重推一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
