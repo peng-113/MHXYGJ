@@ -428,6 +428,10 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
     try {
       storage = JSON.parse(Buffer.from(SESSION_B64, 'base64').toString('utf8'));
     } catch (e) {
+      log('SESSION_STATE 解析失败:', e.message,
+        '| Secret 长度:', SESSION_B64.length,
+        '| 解码后长度:', Buffer.from(SESSION_B64, 'base64').length,
+        '| 前 50 字符:', JSON.stringify(SESSION_B64.slice(0, 50)));
       await alertOnce(state, 'sessfmt', 12, '❌ **搜索监控**\nSESSION_STATE Secret 格式错误。' + LOGIN_HINT);
       await browser.close(); process.exit(1);
     }
