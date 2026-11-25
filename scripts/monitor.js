@@ -20,8 +20,9 @@ const SEARCH_URL = 'https://xyq.cbg.163.com/cgi-bin/recommend.py';
 const SEARCH_TYPE = 'overall_search_role';
 const HOME = 'https://xyq.cbg.163.com';
 const FORM_URL = HOME + '/cgi-bin/xyq_overall_search.py?act=show_search_role_form';
-// 登录恢复入口提示：登录必须本地完成（滑块验证），双击桌面的 .command 一键登录并自动更新云端凭证
-const LOGIN_HINT = '\n👉 请在 Mac 上双击桌面「刷新藏宝阁登录.command」，在弹出的浏览器中完成登录，云端凭证会自动更新，监控 15 分钟内自动恢复。'
+// 登录恢复入口提示：云端已支持二维码自愈（扫码 → 自动选角色 → 凭证自动更新），手机即可完成，无需 Mac 开机
+const LOGIN_HINT = '\n👉 手机即可恢复：本群会推送登录二维码，用「网易大神」App 扫最新一张并确认，云端自动完成登录并更新凭证，15 分钟内自动恢复。'
+  + '\n（若需人工兜底：在 Mac 上双击桌面「刷新藏宝阁登录.command」）'
   + '\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)';
 
 const ACCOUNT = process.env.NETEASE_ACCOUNT || '';
@@ -651,7 +652,7 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
       } else {
         log('二维码登录冷却中（30 分钟），本次跳过');
       }
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n已尝试推送扫码二维码（每 30 分钟重推一次）仍未恢复，搜索暂停。\n👉 立即恢复：在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n二维码每 30 分钟自动重推一次，用「网易大神」扫最新一张即可恢复（手机操作即可，无需 Mac 开机）。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
       process.exit(1);
     }
