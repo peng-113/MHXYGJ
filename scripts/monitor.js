@@ -407,12 +407,20 @@ async function locateQr(page) {
 
 /** 二维码扫码登录自愈：生成登录二维码 → 推送到企微 → 过期自动点刷新并重推新码 → 等用户手机扫码 */
 async function tryQrLogin(ctx, page) {
-  // 网络诊断：记录登录相关的后台请求/响应（定位二维码状态接口，观察扫码确认后服务端状态变化）
+  let qrPollUrl = ''; // 网易扫码状态查询接口（从 get_login_qrcode 响应中捕获）
+  // 网络诊断：记录登录相关的后台请求/响应
   page.on('response', async (res) => {
     try {
       const u = res.url();
       if (!/login|qrcode|qr_|scan|check|status|auth|sso|oauth|token/i.test(u)) return;
       if (/\.(png|jpg|jpeg|js|css|gif|woff|woff2|ico|svg)(\?|$)/.test(u)) return;
+      // 捕获二维码状态轮询地址（用于直接检测用户是否已扫码）
+      if (/get_login_qrcode/.test(u)) {
+        try {
+          const j = JSON.parse(await res.text());
+          if (j.poll_url) { qrPollUrl = j.poll_url; log('已捕获扫码状态接口:', qrPollUrl.slice(0, 120)); }
+        } catch (e) { /* 忽略 */ }
+      }
       let body = '';
       try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 400); } catch (e) { body = '(body 读取失败)'; }
       log('[net]', res.status(), u.slice(0, 140), '|', body);
@@ -441,22 +449,41 @@ async function tryQrLogin(ctx, page) {
   const png = await qr0.h.screenshot();
   log('二维码截图完成,', png.length, 'bytes');
   // 优先企微原生图片消息直推（不依赖图床），失败再走图床兜底
+  let qrSeq = 0; // 推送序号（帮用户识别"最新一张"）
+  const stamp = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16); // 北京时间 HH:MM
   const imgOk = await sendWecomImage(png);
+  qrSeq++;
   if (!imgOk) {
     const imgUrl = await uploadImage(png);
     if (!imgUrl) { log('二维码推送全部失败'); return false; }
     log('二维码图床兜底:', imgUrl);
-    await sendWecom('📱 **监控登录失效 · 请扫码恢复**\n⚠️ 用「**网易大神**」App 扫一扫（将军令）确认登录。\n![二维码](' + imgUrl + ')\n> 图片打不开时，复制链接到浏览器打开：' + imgUrl);
+    await sendWecom(`📱 **登录二维码 #${qrSeq}（${stamp()} 推送）**\n⚠️ 只用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n![二维码](${imgUrl})\n> 只扫**最新一张**（#${qrSeq}）；过期会自动推新码`);
   } else {
-    await sendWecom('📱 **上面这张图就是登录二维码**\n⚠️ 用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n收到后请尽快扫；若提示过期，稍等系统会自动推新码。');
+    await sendWecom(`📱 **上面这张图就是登录二维码 #${qrSeq}（${stamp()} 推送）**\n⚠️ 只用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n只扫**最新一张**；若提示过期，稍等系统会自动推新码；扫码成功会立刻收到"已检测到扫码"通知`);
   }
-  // 轮询扫码结果（最长 6 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
-  const deadline = Date.now() + 360000;
+  // 轮询扫码结果（最长 10 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
+  const deadline = Date.now() + 600000;
   let probeCount = 0;
   let lastPng = png;
   let lastQrCheck = Date.now();
+  let lastRet = '408'; // 上次扫码状态码（408=等待扫码）
   while (Date.now() < deadline) {
     await page.waitForTimeout(5000);
+    // 直读网易扫码状态接口：用户一扫码立刻感知并推送反馈（解决"扫了没反应"的不确定性）
+    if (qrPollUrl) {
+      const rt = await ctx.request.get(qrPollUrl + (qrPollUrl.indexOf('?') >= 0 ? '&' : '?') + 'callback=cb&t=' + Date.now(), { headers: { Referer: HOME + '/' } }).catch(() => null);
+      const rtText = rt ? await rt.text().catch(() => '') : '';
+      const m = rtText.match(/retCode["':\s]+(\d+)/);
+      if (m && m[1] !== lastRet) {
+        log('二维码状态变化:', lastRet, '→', m[1]);
+        lastRet = m[1];
+        if (m[1] === '200') {
+          await sendWecom('✅ **检测到扫码登录成功！**监控正在恢复…');
+        } else {
+          await sendWecom(`📲 **已检测到你的扫码响应（状态码 ${m[1]}）**\n如果手机上弹出确认页面，请点击**确认登录**；确认后监控自动恢复。若扫的不是最新一张图，请扫最新二维码`);
+        }
+      }
+    }
     // 二维码保鲜：每 45s 检查一次，二维码过期/被服务端作废就点刷新，重新截图并重推
     if (Date.now() - lastQrCheck > 45000) {
       lastQrCheck = Date.now();
@@ -479,15 +506,16 @@ async function tryQrLogin(ctx, page) {
         const newPng = await st2.h.screenshot();
         if (Buffer.compare(lastPng, newPng) !== 0) {
           lastPng = newPng;
+          qrSeq++;
           const ok2 = await sendWecomImage(newPng);
           if (ok2) {
-            log('二维码已刷新并重推（图片消息）');
-            await sendWecom('🔄 **上面这张是最新二维码，以此为准**\n请立刻用「网易大神」App 扫一扫（将军令）确认登录');
+            log('二维码已刷新并重推（图片消息）#', qrSeq);
+            await sendWecom(`🔄 **最新二维码 #${qrSeq}（${stamp()} 推送），旧码作废**\n请立刻用「网易大神」App 扫这张新图，扫完手机上点确认`);
           } else {
             const u2 = await uploadImage(newPng);
             if (u2) {
               log('二维码已刷新并重推（图床兜底）:', u2);
-              await sendWecom('🔄 **二维码已刷新，以此为准**\n请立刻用「网易大神」App 扫一扫（将军令）确认登录\n![二维码](' + u2 + ')\n> 图片打不开时，复制链接到浏览器打开：' + u2);
+              await sendWecom(`🔄 **最新二维码 #${qrSeq}（${stamp()} 推送），旧码作废**\n请立刻用「网易大神」App 扫这张新图\n![二维码](${u2})\n> 图片打不开时，复制链接到浏览器打开：${u2}`);
             }
           }
         }
