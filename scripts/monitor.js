@@ -558,17 +558,16 @@ async function tryQrLogin(ctx, page) {
         if (!st) return await verifyAndExport(ctx, page); // 二维码元素消失 → 多半登录成功跳转了
         const frameTxt = await st.f.evaluate(() => (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '');
         if (/过期|失效|刷新/.test(frameTxt)) {
-          const clicked = await st.f.evaluate(() => {
-            const el = [...document.querySelectorAll('a,span,div,p,i,em')].find((e) => /刷新/.test(e.textContent || '') && e.offsetParent !== null);
-            if (el) { el.click(); return el.textContent.trim().slice(0, 20); }
-            return '';
-          }).catch(() => '');
-          if (!clicked) await st.h.click().catch(() => {});
-          log('检测到二维码过期，已点刷新:', clicked || '点二维码本体');
-          await page.waitForTimeout(2500);
+          // 「点击刷新」按钮实测不可靠（点了二维码不重新生成），改为整页重载拿全新二维码
+          await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+          log('二维码过期，整页重载登录页获取新码');
+          await page.waitForTimeout(5000);
         }
         const st2 = await locateQr(page);
         if (!st2) return await verifyAndExport(ctx, page);
+        // 推送前校验：页面仍处于失效状态时不推送（避免把失效图当新码推给用户）
+        const txt2 = await st2.f.evaluate(() => (document.body.innerText || '')).catch(() => '');
+        if (/过期|失效/.test(txt2)) { log('重载后二维码仍未就绪，本轮不推送，等下个周期'); continue; }
         const newPng = await st2.h.screenshot();
         if (Buffer.compare(lastPng, newPng) !== 0) {
           lastPng = newPng;
