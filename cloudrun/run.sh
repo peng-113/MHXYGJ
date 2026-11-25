@@ -10,13 +10,24 @@ export GIT_AUTHOR_NAME="cloudrun-bot" GIT_AUTHOR_EMAIL="cloudrun@tencent.com"
 export GIT_COMMITTER_NAME="cloudrun-bot" GIT_COMMITTER_EMAIL="cloudrun@tencent.com"
 
 # 1. 拉最新代码与配置（网页端保存的 watch-list 在公开仓库）
-git pull --rebase -q || true
+# 腾讯云到 GitHub 连接不稳：设置低速超时快速失败 + 重试，避免卡住整轮
+git config --global http.lowSpeedLimit 1000
+git config --global http.lowSpeedTime 15
+for i in 1 2 3; do
+  git pull --rebase -q && break
+  echo "git pull 第 ${i} 次失败，重试…"
+  sleep 3
+done
 
 # 2. 私有状态仓库：克隆/更新，并把状态文件复制进工作目录
 if [ ! -d /app/state/.git ] && [ -n "${GH_PAT:-}" ]; then
   git clone -q "https://x-access-token:${GH_PAT}@github.com/peng-113/MHXYGJ-state.git" /app/state || echo "⚠ state 仓库克隆失败"
 fi
-(cd /app/state && git pull --rebase -q || true)
+for i in 1 2 3; do
+  (cd /app/state && git pull --rebase -q) && break
+  echo "state pull 第 ${i} 次失败，重试…"
+  sleep 3
+done
 [ -f /app/state/search-state.json ] && cp /app/state/search-state.json /app/repo/search-state.json
 
 # 3. 运行一轮监控
