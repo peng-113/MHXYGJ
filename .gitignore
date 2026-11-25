@@ -5,3 +5,5 @@ scripts/upload-session.py
 new-session.b64
 .env.local
 qr-login.png
+qr-after-200.png
+qr-*.png
