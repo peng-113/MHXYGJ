@@ -20,7 +20,7 @@ const SEARCH_TYPE = 'overall_search_role';
 const HOME = 'https://xyq.cbg.163.com';
 const FORM_URL = HOME + '/cgi-bin/xyq_overall_search.py?act=show_search_role_form';
 // 登录恢复入口提示：登录必须本地完成（云机房 IP 会触发滑块验证），双击桌面 .command 一键登录并自动更新云端凭证
-const LOGIN_HINT = '\n👉 请在 Mac 上双击桌面「刷新藏宝阁登录.command」，在弹出的浏览器中完成登录，云端凭证会自动更新，监控 15 分钟内自动恢复。'
+const LOGIN_HINT = '\n👉 **在电脑上登录即可恢复**：Mac 上双击桌面「刷新藏宝阁登录.command」，在弹出的浏览器中登录，凭证会自动上传，监控 15 分钟内自动恢复。'
   + '\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)';
 
 const ACCOUNT = process.env.NETEASE_ACCOUNT || '';
@@ -120,7 +120,7 @@ async function searchOnce(ctx, criteria, pageNo, searchType) {
   return JSON.parse(m[1]);
 }
 
-/** 检查登录态：旧版页面看"退出/切换角色"，新版页面看"亲爱的…上次登录时间"（扫码后网易会记录） */
+/** 检查登录态：页面顶部出现"退出/切换角色"或"亲爱的…上次登录时间"即视为已登录 */
 async function isLoggedIn(page) {
   return page.evaluate(() => {
     const t = (document.body && document.body.innerText) || '';
@@ -200,7 +200,7 @@ async function doLogin(page) {
   await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(4000);
   let target = await findPassFrame(page);
-  // 默认可能是"二维码登录"标签，先点"邮箱登录"切到账密表单
+  // 默认可能停在扫码标签页，先点"邮箱登录"切到账密表单（本地账密登录用）
   if (!target) {
     log('未见密码表单，尝试点击"邮箱登录"标签…');
     for (const f of page.frames()) {
@@ -361,7 +361,7 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
       log('登录凭证已失效');
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n👉 在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新，监控 15 分钟内自动恢复。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n👉 **在电脑上登录即可恢复**：Mac 上双击桌面「刷新藏宝阁登录.command」，登录后凭证自动上传，监控 15 分钟内自动恢复。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
       process.exit(1);
     }
@@ -504,7 +504,7 @@ async function runSearch(ctx, roleSchemes, petSchemes, watchItems, state, browse
   await browser.close();
 
   if (fatal) {
-    await alertOnce(state, 'session', 6, '❌ **搜索监控：会话中途失效**\n本次未完成搜索，请重新登录恢复监控。' + LOGIN_HINT);
+    await alertOnce(state, 'session', 6, '❌ **搜索监控：会话中途失效**\n本次未完成搜索。\n👉 **在电脑上登录即可恢复**：Mac 上双击桌面「刷新藏宝阁登录.command」重新登录。' + '\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
     process.exit(1);
   }
 
