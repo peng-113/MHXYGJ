@@ -28,7 +28,13 @@ const LOGIN_HINT = '\n👉 手机即可恢复：本群会推送登录二维码�
 const ACCOUNT = process.env.NETEASE_ACCOUNT || '';
 const PASSWORD = process.env.NETEASE_PASSWORD || '';
 const WEBHOOK = process.env.WECOM_WEBHOOK || '';
-const SESSION_B64 = process.env.SESSION_STATE || '';
+// 会话凭证来源：优先环境变量（GitHub Actions Secret），否则读 CB_STATE_DIR 下的 session-state.json（CloudBase 云托管私有仓库）
+const STATE_DIR = process.env.CB_STATE_DIR || '';
+const SESSION_B64 = process.env.SESSION_STATE || (() => {
+  const f = path.join(STATE_DIR, 'session-state.json');
+  try { return fs.readFileSync(f, 'utf8').trim() ? Buffer.from(fs.readFileSync(f), 'utf8').toString('base64') : ''; }
+  catch (e) { return ''; }
+})();
 const DRY_RUN = process.env.DRY_RUN === '1';
 const FORCE_ACCOUNT_LOGIN = process.env.USE_ACCOUNT_LOGIN === '1'; // 强制账密登录模式（测试用）
 const FORCE_QR_LOGIN = process.env.USE_QR_LOGIN === '1';           // 强制二维码登录模式（测试用）
