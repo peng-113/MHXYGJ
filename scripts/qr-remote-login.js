@@ -16,7 +16,9 @@ const { chromium } = require('playwright');
 
 const ROOT = path.join(__dirname, '..');
 const FORM_URL = 'https://xyq.cbg.163.com/cgi-bin/xyq_overall_search.py?act=show_search_role_form';
-const LOGIN_URL = 'https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login';
+const LOGIN_URL = 'https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91';
+// 区服参数来自 URL（页面 set_server_info() 读取）：area 48=河北2区，server 215=燕赵风云。
+// 二维码登录在扫码确认后要求 server_id 非空，否则页面弹"请选择要登录的服务器"并中断会话建立（此前云端扫码失败的真正原因）。
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // 读取本地配置（.env.local：KEY=VALUE 每行一条）
@@ -96,6 +98,20 @@ async function isLoggedIn(page) {
   const browser = await chromium.launch({ headless: false });
   const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 800 } });
   const page = await ctx.newPage();
+
+  // ===== 诊断：记录全部非静态请求/响应（定位扫码确认后的会话建立回调） =====
+  page.on('response', async (res) => {
+    try {
+      const u = res.url();
+      if (/\.(png|jpg|jpeg|gif|css|woff2?|ico|svg)(\?|$)/i.test(u)) return;
+      let body = '';
+      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 200); } catch (e) { body = '(无法读取)'; }
+      log('[net]', res.status(), u.slice(0, 130), '|', body);
+    } catch (e) { /* 忽略 */ }
+  });
+  page.on('console', (msg) => { try { log('[console]', msg.type(), (msg.text() || '').slice(0, 150)); } catch (e) {} });
+  page.on('pageerror', (err) => { try { log('[pageerror]', String(err).slice(0, 200)); } catch (e) {} });
+
   page.on('response', async (res) => {
     try {
       if (/get_login_qrcode/.test(res.url())) {
@@ -156,6 +172,19 @@ async function isLoggedIn(page) {
         log('二维码状态变化:', lastRet, '→', m[1]);
         lastRet = m[1];
         if (m[1] === '200') {
+          // 200=手机端已确认：立刻截图 + 记录 cookie + frame 文本（诊断会话建立断在哪一环）
+          await page.waitForTimeout(4000);
+          try {
+            await page.screenshot({ path: path.join(ROOT, 'qr-after-200.png'), fullPage: false });
+            log('已保存扫码确认后页面截图: qr-after-200.png');
+            const cookies = await ctx.cookies();
+            const interesting = cookies.filter((c) => /sess|token|login|ntes|cbg/i.test(c.name));
+            log('当前 cookie（关键项）:', interesting.map((c) => c.name + '=' + String(c.value).slice(0, 12) + '…(域:' + c.domain + ')').join(' ; ') || '（无）');
+            for (const f of page.frames()) {
+              const t = await f.evaluate(() => ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').trim().slice(0, 150)).catch(() => '');
+              if (t) log('[frame]', (f.url() || '').slice(0, 80), '|', t);
+            }
+          } catch (e) { log('诊断截图失败:', e.message); }
           await sendWecom('📲 **手机端已确认扫码**\n正在等待登录会话下发（本机国内网络，一般 10 秒内完成）…');
         } else if (m[1] !== '408') {
           await sendWecom(`📲 扫码状态变化（状态码 ${m[1]}，多为二维码已失效）。若未恢复，请扫下一张新码`);

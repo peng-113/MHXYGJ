@@ -427,9 +427,10 @@ async function tryQrLogin(ctx, page) {
     } catch (e) { /* 忽略诊断异常 */ }
   });
   log('打开登录页（二维码模式）…');
-  await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // 区服参数（area 48=河北2区，server 215=燕赵风云）：二维码登录扫码确认后要求 server_id 非空，
+  // 否则页面弹"请选择要登录的服务器"中断会话建立——此前云端扫码后拿不到登录 cookie 的真正原因
+  await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(4000);
-  // 确保二维码登录 tab 激活（页面默认通常已是）
   for (const f of page.frames()) {
     await f.evaluate(() => {
       const el = [...document.querySelectorAll('a,span,div,li,dt,dd,p')].find((e) => /^二维码登录$/.test((e.textContent || '').trim()) && e.offsetParent !== null);
