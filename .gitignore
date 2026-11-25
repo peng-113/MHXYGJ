@@ -3,3 +3,5 @@ node_modules/
 session-state.json
 scripts/upload-session.py
 new-session.b64
+.env.local
+qr-login.png
