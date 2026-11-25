@@ -20,15 +20,16 @@
     "empty_sch_mwkc50ufgvgk": 1794953235598,
     "sessfmt": 1795580789836,
     "login": 1795512375319,
-    "qrlogin": 1795584514313,
+    "qrlogin": 1795586492005,
     "cred": 1795573483920
   },
   "watch": {
     "w_mwvib863tjfk": {
       "price": 1666600,
-      "name": "金ID"
+      "name": "金ID",
+      "gone": false
     }
   },
   "digestDate": "2026-11-24",
-  "updatedAt": "2026-11-25T05:28:34.313Z"
+  "updatedAt": "2026-11-25T06:06:03.131Z"
 }
