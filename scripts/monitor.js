@@ -151,9 +151,13 @@ async function searchOnce(ctx, criteria, pageNo, searchType) {
   return JSON.parse(m[1]);
 }
 
-/** 检查登录态（页面顶部是否出现"退出"） */
+/** 检查登录态：旧版页面看"退出/切换角色"，新版页面看"亲爱的…上次登录时间"（扫码后网易会记录） */
 async function isLoggedIn(page) {
-  return page.evaluate(() => /退出登录|>退出<|切换角色/.test(document.body.innerText));
+  return page.evaluate(() => {
+    const t = (document.body && document.body.innerText) || '';
+    if (/退出登录|>退出<|切换角色/.test(t)) return true;
+    return /亲爱的.{1,60}上次登录时间/.test(t);
+  });
 }
 
 /** 解析藏宝阁详情链接（PC 与手机版格式）→ { serverid, eid } */
@@ -531,8 +535,14 @@ async function tryQrLogin(ctx, page) {
         log('二维码状态变化:', lastRet, '→', m[1]);
         lastRet = m[1];
         if (m[1] === '200') {
-          // 200=手机端已确认，但不保证会话下发成功（云机房 IP 可能被风控拦截），以最终恢复通知为准
-          await sendWecom('📲 **手机端已确认扫码**\n正在验证登录会话是否下发成功…\n若稍后收到"仍未恢复"提示，请双击 Mac 桌面「刷新藏宝阁登录.command」改用本地登录');
+          // 200=手机端已确认，新版 SPA 会调 login_by_qrcode 完成 URS 登录（但藏宝阁会话尚未建立）
+          await sendWecom('📲 **手机端已确认扫码**，正在建立登录会话…');
+          await page.waitForTimeout(8000); // 等 SPA 完成 login_by_qrcode（URS cookie 落地）
+          // 兜底：访问旧版登录页——URS 已登录时旧页会自动调 login_check 跳角色选择页，
+          // 由主循环的 handleRoleSelect / verifyAndExport 接管（兼容网易新旧两版登录界面）
+          await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+          await page.waitForTimeout(6000);
+          log('已切回旧版登录页以触发会话建立，当前URL:', page.url().slice(0, 120));
         } else if (m[1] === '408') {
           // 回到等待扫码（二维码被页面刷新重置），无需打扰
         } else {
