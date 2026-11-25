@@ -10,7 +10,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 const CRITERIA_FILE = path.join(__dirname, '..', 'criteria.json');
 const PET_FILE = path.join(__dirname, '..', 'pet-criteria.json');
@@ -20,25 +19,17 @@ const SEARCH_URL = 'https://xyq.cbg.163.com/cgi-bin/recommend.py';
 const SEARCH_TYPE = 'overall_search_role';
 const HOME = 'https://xyq.cbg.163.com';
 const FORM_URL = HOME + '/cgi-bin/xyq_overall_search.py?act=show_search_role_form';
-// 登录恢复入口提示：云端已支持二维码自愈（扫码 → 自动选角色 → 凭证自动更新），手机即可完成，无需 Mac 开机
-const LOGIN_HINT = '\n👉 手机即可恢复：本群会推送登录二维码，用「网易大神」App 扫最新一张并确认，云端自动完成登录并更新凭证，15 分钟内自动恢复。'
-  + '\n（若需人工兜底：在 Mac 上双击桌面「刷新藏宝阁登录.command」）'
+// 登录恢复入口提示：登录必须本地完成（云机房 IP 会触发滑块验证），双击桌面 .command 一键登录并自动更新云端凭证
+const LOGIN_HINT = '\n👉 请在 Mac 上双击桌面「刷新藏宝阁登录.command」，在弹出的浏览器中完成登录，云端凭证会自动更新，监控 15 分钟内自动恢复。'
   + '\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)';
 
 const ACCOUNT = process.env.NETEASE_ACCOUNT || '';
 const PASSWORD = process.env.NETEASE_PASSWORD || '';
 const WEBHOOK = process.env.WECOM_WEBHOOK || '';
-// 会话凭证来源：优先环境变量（GitHub Actions Secret），否则读 CB_STATE_DIR 下的 session-state.json（CloudBase 云托管私有仓库）
-const STATE_DIR = process.env.CB_STATE_DIR || '';
-const SESSION_B64 = process.env.SESSION_STATE || (() => {
-  const f = path.join(STATE_DIR, 'session-state.json');
-  try { return fs.readFileSync(f, 'utf8').trim() ? Buffer.from(fs.readFileSync(f), 'utf8').toString('base64') : ''; }
-  catch (e) { return ''; }
-})();
+// 会话凭证来源：GitHub Actions Secret（本地登录后由 upload-session.py 上传）
+const SESSION_B64 = process.env.SESSION_STATE || '';
 const DRY_RUN = process.env.DRY_RUN === '1';
 const FORCE_ACCOUNT_LOGIN = process.env.USE_ACCOUNT_LOGIN === '1'; // 强制账密登录模式（测试用）
-const FORCE_QR_LOGIN = process.env.USE_QR_LOGIN === '1';           // 强制二维码登录模式（测试用）
-const NEW_SESSION_FILE = path.join(__dirname, '..', 'new-session.b64'); // 扫码成功后导出新凭证，workflow 自动更新 Secret
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -58,28 +49,6 @@ async function sendWecom(md) {
     return j.errcode === 0;
   } catch (e) {
     log('通知发送失败:', e.message);
-    return false;
-  }
-}
-
-/** 企微原生图片消息：直接推 PNG buffer（≤2MB），不依赖图床 */
-async function sendWecomImage(buf) {
-  if (!WEBHOOK) { log('未配置 WECOM_WEBHOOK，跳过图片通知'); return false; }
-  if (buf.length > 2 * 1024 * 1024) { log('图片超过 2MB，无法直推'); return false; }
-  try {
-    const res = await fetch(WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        msgtype: 'image',
-        image: { base64: buf.toString('base64'), md5: crypto.createHash('md5').update(buf).digest('hex') },
-      }),
-    });
-    const j = await res.json().catch(() => ({}));
-    log('图片通知发送:', j.errmsg || res.status);
-    return j.errcode === 0;
-  } catch (e) {
-    log('图片通知失败:', e.message);
     return false;
   }
 }
@@ -355,265 +324,6 @@ function pickProbe() {
   return null;
 }
 
-/** 临时图床上传（免密钥）：返回公网图片 URL，全部失败返回 '' */
-async function uploadImage(buf) {
-  // 首选 sm.ms 匿名上传（国内可达性较好）
-  try {
-    const fd = new FormData();
-    fd.append('smfile', new Blob([buf]), 'qrcode.png');
-    const res = await fetch('https://sm.ms/api/v2/upload', { method: 'POST', body: fd });
-    const j = await res.json();
-    if (j.success && j.data && j.data.url) return j.data.url;
-    log('sm.ms 上传响应:', JSON.stringify(j).slice(0, 200));
-  } catch (e) { log('sm.ms 上传异常:', e.message); }
-  // 备选 tmpfiles.org（保留 1 小时，够扫码用）
-  try {
-    const fd = new FormData();
-    fd.append('file', new Blob([buf]), 'qrcode.png');
-    const res = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fd });
-    const j = await res.json();
-    if (j && j.data && j.data.url) return j.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-  } catch (e) { log('tmpfiles 上传异常:', e.message); }
-  // 再备选 litterbox（catbox 临时图床，直链 1 小时有效）
-  try {
-    const fd = new FormData();
-    fd.append('reqtype', 'fileupload');
-    fd.append('time', '1h');
-    fd.append('fileToUpload', new Blob([buf]), 'qrcode.png');
-    const res = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', { method: 'POST', body: fd });
-    const url = (await res.text()).trim();
-    if (/^https?:\/\//.test(url)) return url;
-    log('litterbox 上传响应:', url.slice(0, 100));
-  } catch (e) { log('litterbox 上传异常:', e.message); }
-  return '';
-}
-
-/** 扫码确认后：若落在角色选择页，自动选中第一个未锁定角色（否则登录会卡在这一步，表现为稍后 retCode 404） */
-async function handleRoleSelect(page) {
-  log('检测到角色选择页，自动选择角色…');
-  await page.waitForTimeout(1500);
-  let picked = null;
-  for (const f of page.frames()) {
-    picked = await f.evaluate(() => {
-      try {
-        const rl = window.RoleList;
-        if (rl && typeof rl === 'object') {
-          for (const id of Object.keys(rl)) {
-            const ro = rl[id];
-            if (ro && !ro.is_locked) return { roleid: id, name: ro.role_name || ro.name || ('#' + id) };
-          }
-        }
-      } catch (e) {}
-      return null;
-    }).catch(() => null);
-    if (picked) {
-      await f.evaluate((id) => {
-        if (typeof window.login_in_role === 'function') window.login_in_role(id);
-        else window.location.href = (window.CgiRootUrl || '/cgi-bin') + '/login.py?act=chose_role&roleid=' + id;
-      }, picked.roleid).catch(() => {});
-      break;
-    }
-  }
-  if (!picked) {
-    const clicked = await page.evaluate(() => {
-      const el = [...document.querySelectorAll('a,button,div,span,li,dt,dd')].find((e) => /选择|登录|进入/.test((e.textContent || '').trim()) && e.textContent.trim().length < 20 && e.offsetParent !== null);
-      if (el) { el.click(); return (el.textContent || '').trim().slice(0, 30); }
-      return '';
-    }).catch(() => '');
-    log('未读到 RoleList，兜底点击:', clicked || '（失败）');
-  } else {
-    log('已自动选择角色:', picked.name, '(roleid=' + picked.roleid + ')');
-  }
-  await page.waitForTimeout(4000);
-}
-
-/** 扫码登录成功后的验证与新凭证导出（workflow 会自动更新 SESSION_STATE Secret） */
-async function verifyAndExport(ctx, page) {
-  let ok = false;
-  for (let i = 0; i < 3; i++) {
-    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(3000);
-    if (page.url().indexOf('show_role_select_page') >= 0) { await handleRoleSelect(page); continue; }
-    ok = await isLoggedIn(page);
-    log('扫码登录验证(第' + (i + 1) + '次):', ok ? '成功' : '失败');
-    if (ok) break;
-    await page.waitForTimeout(3000);
-  }
-  if (!ok) return false;
-  const storage = await ctx.storageState();
-  fs.writeFileSync(NEW_SESSION_FILE, Buffer.from(JSON.stringify(storage), 'utf8').toString('base64'));
-  log('新凭证已导出到 new-session.b64，workflow 将自动更新云端 Secret');
-  return true;
-}
-
-/** 定位二维码元素：img 或 canvas，近似正方形、120-320px，返回 { f: 所在 frame, h: 元素 } */
-async function locateQr(page) {
-  for (const f of page.frames()) {
-    const handles = await f.$$('img, canvas');
-    for (const h of handles) {
-      const ok = await h.evaluate((e) => {
-        const r = e.getBoundingClientRect();
-        return r.width > 120 && r.width < 320 && Math.abs(r.width - r.height) < 40;
-      }).catch(() => false);
-      if (ok) return { f, h };
-    }
-  }
-  return null;
-}
-
-/** 二维码扫码登录自愈：生成登录二维码 → 推送到企微 → 过期自动点刷新并重推新码 → 等用户手机扫码 */
-async function tryQrLogin(ctx, page) {
-  let qrPollUrl = ''; // 网易扫码状态查询接口（从 get_login_qrcode 响应中捕获）
-  // 网络诊断：记录登录相关的后台请求/响应
-  page.on('response', async (res) => {
-    try {
-      const u = res.url();
-      if (!/login|qrcode|qr_|scan|check|status|auth|sso|oauth|token/i.test(u)) return;
-      if (/\.(png|jpg|jpeg|js|css|gif|woff|woff2|ico|svg)(\?|$)/.test(u)) return;
-      // 捕获二维码状态轮询地址（用于直接检测用户是否已扫码）
-      if (/get_login_qrcode/.test(u)) {
-        try {
-          const j = JSON.parse(await res.text());
-          if (j.poll_url) { qrPollUrl = j.poll_url; log('已捕获扫码状态接口:', qrPollUrl.slice(0, 120)); }
-        } catch (e) { /* 忽略 */ }
-      }
-      let body = '';
-      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 400); } catch (e) { body = '(body 读取失败)'; }
-      log('[net]', res.status(), u.slice(0, 140), '|', body);
-    } catch (e) { /* 忽略诊断异常 */ }
-  });
-  log('打开登录页（二维码模式）…');
-  // 区服参数（area 48=河北2区，server 215=燕赵风云）：二维码登录扫码确认后要求 server_id 非空，
-  // 否则页面弹"请选择要登录的服务器"中断会话建立——此前云端扫码后拿不到登录 cookie 的真正原因
-  await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(4000);
-  for (const f of page.frames()) {
-    await f.evaluate(() => {
-      const el = [...document.querySelectorAll('a,span,div,li,dt,dd,p')].find((e) => /^二维码登录$/.test((e.textContent || '').trim()) && e.offsetParent !== null);
-      if (el) { el.click(); return true; }
-      return false;
-    }).catch(() => {});
-  }
-  await page.waitForTimeout(2500);
-  const qr0 = await locateQr(page);
-  if (!qr0) {
-    for (const f of page.frames()) {
-      const srcs = await f.evaluate(() => [...document.querySelectorAll('img, canvas')].map((e) => e.tagName + ' ' + (e.src || '').slice(0, 60) + ' ' + Math.round(e.getBoundingClientRect().width)).join(' ; ')).catch(() => '');
-      log('frame 二维码候选:', srcs);
-    }
-    return false;
-  }
-  const png = await qr0.h.screenshot();
-  log('二维码截图完成,', png.length, 'bytes');
-  // 优先企微原生图片消息直推（不依赖图床），失败再走图床兜底
-  let qrSeq = 0; // 推送序号（帮用户识别"最新一张"）
-  const stamp = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16); // 北京时间 HH:MM
-  const imgOk = await sendWecomImage(png);
-  qrSeq++;
-  if (!imgOk) {
-    const imgUrl = await uploadImage(png);
-    if (!imgUrl) { log('二维码推送全部失败'); return false; }
-    log('二维码图床兜底:', imgUrl);
-    await sendWecom(`📱 **登录二维码 #${qrSeq}（${stamp()} 推送）**\n⚠️ 只用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n![二维码](${imgUrl})\n> 只扫**最新一张**（#${qrSeq}）；过期会自动推新码`);
-  } else {
-    await sendWecom(`📱 **上面这张图就是登录二维码 #${qrSeq}（${stamp()} 推送）**\n⚠️ 只用「**网易大神**」App 扫一扫（将军令）确认登录，藏宝阁 App 和微信扫均无效。\n只扫**最新一张**；若提示过期，稍等系统会自动推新码；扫码状态变化会实时通知`);
-  }
-  // 轮询扫码结果（最长 10 分钟）：以搜索接口实测为准（扫码成功 cookie 立即生效），页面跳转/用户区文本作辅助
-  const deadline = Date.now() + 600000;
-  let probeCount = 0;
-  let lastPng = png;
-  let lastQrCheck = Date.now();
-  let lastRet = '408'; // 上次扫码状态码（408=等待扫码）
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(5000);
-    // 直读网易扫码状态接口：用户一扫码立刻感知并推送反馈（解决"扫了没反应"的不确定性）
-    if (qrPollUrl) {
-      const rt = await ctx.request.get(qrPollUrl + (qrPollUrl.indexOf('?') >= 0 ? '&' : '?') + 'callback=cb&t=' + Date.now(), { headers: { Referer: HOME + '/' } }).catch(() => null);
-      const rtText = rt ? await rt.text().catch(() => '') : '';
-      const m = rtText.match(/retCode["':\s]+(\d+)/);
-      if (m && m[1] !== lastRet) {
-        log('二维码状态变化:', lastRet, '→', m[1]);
-        lastRet = m[1];
-        if (m[1] === '200') {
-          // 200=手机端已确认，新版 SPA 会调 login_by_qrcode 完成 URS 登录（但藏宝阁会话尚未建立）
-          await sendWecom('📲 **手机端已确认扫码**，正在建立登录会话…');
-          await page.waitForTimeout(8000); // 等 SPA 完成 login_by_qrcode（URS cookie 落地）
-          // 兜底：访问旧版登录页——URS 已登录时旧页会自动调 login_check 跳角色选择页，
-          // 由主循环的 handleRoleSelect / verifyAndExport 接管（兼容网易新旧两版登录界面）
-          await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-          await page.waitForTimeout(6000);
-          log('已切回旧版登录页以触发会话建立，当前URL:', page.url().slice(0, 120));
-        } else if (m[1] === '408') {
-          // 回到等待扫码（二维码被页面刷新重置），无需打扰
-        } else {
-          await sendWecom(`📲 扫码状态变化（状态码 ${m[1]}，多为二维码已失效）。若未恢复，请等下一张新二维码再扫，或双击 Mac 桌面「刷新藏宝阁登录.command」立即恢复`);
-        }
-      }
-    }
-    // 二维码保鲜：每 45s 检查一次，二维码过期/被服务端作废就点刷新，重新截图并重推
-    if (Date.now() - lastQrCheck > 45000) {
-      lastQrCheck = Date.now();
-      try {
-        const st = await locateQr(page);
-        if (!st) return await verifyAndExport(ctx, page); // 二维码元素消失 → 多半登录成功跳转了
-        const frameTxt = await st.f.evaluate(() => (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '');
-        if (/过期|失效|刷新/.test(frameTxt)) {
-          // 「点击刷新」按钮实测不可靠（点了二维码不重新生成），改为整页重载拿全新二维码
-          await page.goto(HOME + '/cgi-bin/show_login.py?act=show_login&area_id=48&area_name=%E6%B2%B3%E5%8C%972%E5%8C%BA&server_id=215&server_name=%E7%87%95%E8%B5%B5%E9%A3%8E%E4%BA%91', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-          log('二维码过期，整页重载登录页获取新码');
-          await page.waitForTimeout(5000);
-        }
-        const st2 = await locateQr(page);
-        if (!st2) return await verifyAndExport(ctx, page);
-        // 推送前校验：页面仍处于失效状态时不推送（避免把失效图当新码推给用户）
-        const txt2 = await st2.f.evaluate(() => (document.body.innerText || '')).catch(() => '');
-        if (/过期|失效/.test(txt2)) { log('重载后二维码仍未就绪，本轮不推送，等下个周期'); continue; }
-        const newPng = await st2.h.screenshot();
-        if (Buffer.compare(lastPng, newPng) !== 0) {
-          lastPng = newPng;
-          qrSeq++;
-          const ok2 = await sendWecomImage(newPng);
-          if (ok2) {
-            log('二维码已刷新并重推（图片消息）#', qrSeq);
-            await sendWecom(`🔄 **最新二维码 #${qrSeq}（${stamp()} 推送），旧码作废**\n请立刻用「网易大神」App 扫这张新图，扫完手机上点确认`);
-          } else {
-            const u2 = await uploadImage(newPng);
-            if (u2) {
-              log('二维码已刷新并重推（图床兜底）:', u2);
-              await sendWecom(`🔄 **最新二维码 #${qrSeq}（${stamp()} 推送），旧码作废**\n请立刻用「网易大神」App 扫这张新图\n![二维码](${u2})\n> 图片打不开时，复制链接到浏览器打开：${u2}`);
-            }
-          }
-        }
-      } catch (e) { /* 二维码元素可能已消失（登录成功跳转中） */ }
-    }
-    // 辅助检测 1：页面跳离登录页（角色选择页需先自动选角色）
-    const curUrl = page.url();
-    if (curUrl.indexOf('show_role_select_page') >= 0) { await handleRoleSelect(page); continue; }
-    if (curUrl.indexOf('chose_role') >= 0) { await page.waitForTimeout(3000); continue; }
-    if (curUrl.indexOf('show_login') < 0) return await verifyAndExport(ctx, page);
-    // 辅助检测 2：主页用户区不再是"梦幻玩家"
-    const info = await page.evaluate(() => { const el = document.querySelector('.userInfo'); return el ? el.innerText : ''; }).catch(() => '');
-    if (info && !/梦幻玩家/.test(info)) return await verifyAndExport(ctx, page);
-    // 主检测：每 15 秒实测一次搜索接口（每 3 个轮询周期执行 1 次，避免请求过密）
-    if (++probeCount % 3 === 0) {
-      const probeInfo = pickProbe();
-      const p = await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch(() => ({ status: -1 }));
-      log('扫码轮询探测 status:', p.status, p.status_code || '');
-      if (isOk(p)) return await verifyAndExport(ctx, page);
-      // 诊断：登录区状态文本（判断二维码是过期/刷新/等待确认）
-      if (probeCount % 12 === 0) {
-        const texts = [];
-        for (const f of page.frames()) {
-          const t = await f.evaluate(() => ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').trim().slice(0, 100)).catch(() => '');
-          if (/二维码|扫码|安全验证|登录|过期|刷新/.test(t)) texts.push(t);
-        }
-        log('登录区状态:', texts.join(' | ').slice(0, 400) || '(无匹配文本)');
-      }
-    }
-  }
-  await sendWecom('⌛ 二维码未在有效期内扫码，监控暂未恢复。30 分钟后会重新推送二维码；也可在 Mac 上双击桌面「刷新藏宝阁登录.command」立即恢复。');
-  return false;
-}
 
 /** 账密自动登录并复验（在同一浏览器上下文里做，成功返回 true） */
 async function autoLogin(page, probeInfo) {
@@ -647,27 +357,11 @@ if (SESSION_B64 && !FORCE_ACCOUNT_LOGIN) {
     await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(2500);
     const probeInfo = pickProbe();
-    const probe = FORCE_QR_LOGIN
-      ? { status: -1, msg: 'USE_QR_LOGIN=1 强制二维码模式' }
-      : await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch((e) => ({ status: -1, msg: e.message }));
+    const probe = await searchOnce(ctx, probeInfo.criteria, 1, probeInfo.type).catch((e) => ({ status: -1, msg: e.message }));
     log('凭证探测 status:', probe.status, probe.status_code || '', probe.msg || '');
     if (!isOk(probe)) {
-      log('登录凭证已失效，启动二维码扫码自愈…');
-      // 二维码推送限速：30 分钟一次，避免没来得及扫码时反复刷屏
-      const lastQr = state.alerts['qrlogin'] || 0;
-      if (Date.now() - lastQr > 1800e3) {
-        state.alerts['qrlogin'] = Date.now();
-        saveState(state);
-        const scanned = await tryQrLogin(ctx, page).catch((e) => { log('二维码登录异常:', e.message); return false; });
-        if (scanned) {
-          log('✅ 扫码登录成功，监控自动恢复');
-          return await runSearch(ctx, enabled, petEnabled, watchItems, state, browser);
-        }
-        log('二维码未扫码或已过期');
-      } else {
-        log('二维码登录冷却中（30 分钟），本次跳过');
-      }
-      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n二维码每 30 分钟自动重推一次，用「网易大神」扫最新一张即可恢复（手机操作即可，无需 Mac 开机）。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
+      log('登录凭证已失效');
+      await alertOnce(state, 'cred', 12, '⚠️ **搜索监控：登录凭证已失效**\n👉 在 Mac 上双击桌面「刷新藏宝阁登录.command」完成登录，云端凭证会自动更新，监控 15 分钟内自动恢复。\n[打开藏宝阁登录页](https://xyq.cbg.163.com/cgi-bin/show_login.py?act=show_login)');
       await browser.close();
       process.exit(1);
     }
