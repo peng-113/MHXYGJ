@@ -53,6 +53,7 @@ jobs:
           NETEASE_PASSWORD: ${{ secrets.NETEASE_PASSWORD }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           SESSION_STATE: ${{ secrets.SESSION_STATE }}
+          GH_PAT: ${{ secrets.MONITOR_PAT }}
           FORCE_DIGEST: ${{ github.event.inputs.digest == 'true' && '1' || '' }}
           USE_ACCOUNT_LOGIN: ${{ github.event.inputs.account_login == 'true' && '1' || '' }}
           USE_QR_LOGIN: ${{ github.event.inputs.qr_login == 'true' && '1' || '' }}
@@ -68,6 +69,13 @@ jobs:
             git add search-state.json 2>/dev/null || true
             git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
             git push || true
+            # 扫码自愈成功：立即更新 Secret 并结束本轮循环（当前 job 的环境变量无法热更新，
+            # 直接退出让 "Chain next run" 触发新运行读取新凭证，避免后续轮次空转）
+            if [ -f new-session.b64 ]; then
+              echo "检测到扫码自愈新凭证，立即更新 Secret 并交棒下一次运行"
+              python3 scripts/put-secret.py new-session.b64 && rm -f new-session.b64
+              break
+            fi
             if [ $i -lt "$ROUNDS" ]; then
               # 休眠到下一个固定触发点（每小时第 4 / 19 / 34 / 49 分，15 分钟间隔，避开整点拥堵时段）
               M=$(date -u +%M); S=$(date -u +%S)
