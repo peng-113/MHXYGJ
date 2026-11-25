@@ -1,22 +1,13 @@
 {
-  "rev": 1795573795925,
-  "updatedAt": "2026-11-25T02:29:55.925Z",
+  "rev": 1795573856188,
+  "updatedAt": "2026-11-25T02:30:56.188Z",
   "items": [
     {
-      "id": "w_mwu3mjfiry5s",
-      "name": "渡劫-百修-LB",
-      "url": "https://xyq.cbg.163.com/equip?s=215&eid=202611231200113-215-FHS9LAJFNRPQ&equip_refer=29&view_loc=my_collect&from_shareid=2105181600128-ZBZJNDHEVZIFQYPJ",
+      "id": "w_mwvib863tjfk",
+      "name": "金ID",
+      "url": "https://xyq.cbg.163.com/equip?s=215&eid=202611242200113-215-VTC9DODLCI9E&equip_refer=29&view_loc=my_collect&from_shareid=2105181600128-ZBZJNDHEVZIFQYPJ",
       "serverid": "215",
-      "eid": "202611231200113-215-FHS9LAJFNRPQ",
-      "threshold": 5,
-      "enabled": true
-    },
-    {
-      "id": "w_mwu3o0lpdw9z",
-      "name": "化圣-满机缘-无锦衣-NE",
-      "url": "https://xyq.cbg.163.com/equip?s=215&eid=202610251700113-215-Q7IJDRAWNL0E&equip_refer=29&view_loc=my_collect&from_shareid=2105181600128-ZBZJNDHEVZIFQYPJ",
-      "serverid": "215",
-      "eid": "202610251700113-215-Q7IJDRAWNL0E",
+      "eid": "202611242200113-215-VTC9DODLCI9E",
       "threshold": 10,
       "enabled": true
     }
