@@ -73,6 +73,7 @@ jobs:
             # 直接退出让 "Chain next run" 触发新运行读取新凭证，避免后续轮次空转）
             if [ -f new-session.b64 ]; then
               echo "检测到扫码自愈新凭证，立即更新 Secret 并交棒下一次运行"
+              python3 -m pip install --quiet pynacl 2>/dev/null || pip install --quiet pynacl || true
               python3 scripts/put-secret.py new-session.b64 && rm -f new-session.b64
               break
             fi
@@ -95,6 +96,7 @@ jobs:
           GH_PAT: ${{ secrets.MONITOR_PAT }}
         run: |
           if [ -f new-session.b64 ]; then
+            python3 -m pip install --quiet pynacl 2>/dev/null || pip install --quiet pynacl || true
             python3 scripts/put-secret.py new-session.b64 && rm -f new-session.b64
           else
             echo "本次运行没有新的扫码登录凭证"
