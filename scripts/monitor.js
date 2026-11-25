@@ -377,12 +377,57 @@ async function uploadImage(buf) {
   return '';
 }
 
+/** 扫码确认后：若落在角色选择页，自动选中第一个未锁定角色（否则登录会卡在这一步，表现为稍后 retCode 404） */
+async function handleRoleSelect(page) {
+  log('检测到角色选择页，自动选择角色…');
+  await page.waitForTimeout(1500);
+  let picked = null;
+  for (const f of page.frames()) {
+    picked = await f.evaluate(() => {
+      try {
+        const rl = window.RoleList;
+        if (rl && typeof rl === 'object') {
+          for (const id of Object.keys(rl)) {
+            const ro = rl[id];
+            if (ro && !ro.is_locked) return { roleid: id, name: ro.role_name || ro.name || ('#' + id) };
+          }
+        }
+      } catch (e) {}
+      return null;
+    }).catch(() => null);
+    if (picked) {
+      await f.evaluate((id) => {
+        if (typeof window.login_in_role === 'function') window.login_in_role(id);
+        else window.location.href = (window.CgiRootUrl || '/cgi-bin') + '/login.py?act=chose_role&roleid=' + id;
+      }, picked.roleid).catch(() => {});
+      break;
+    }
+  }
+  if (!picked) {
+    const clicked = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('a,button,div,span,li,dt,dd')].find((e) => /选择|登录|进入/.test((e.textContent || '').trim()) && e.textContent.trim().length < 20 && e.offsetParent !== null);
+      if (el) { el.click(); return (el.textContent || '').trim().slice(0, 30); }
+      return '';
+    }).catch(() => '');
+    log('未读到 RoleList，兜底点击:', clicked || '（失败）');
+  } else {
+    log('已自动选择角色:', picked.name, '(roleid=' + picked.roleid + ')');
+  }
+  await page.waitForTimeout(4000);
+}
+
 /** 扫码登录成功后的验证与新凭证导出（workflow 会自动更新 SESSION_STATE Secret） */
 async function verifyAndExport(ctx, page) {
-  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2500);
-  const ok = await isLoggedIn(page);
-  log('扫码登录验证:', ok ? '成功' : '失败');
+  let ok = false;
+  for (let i = 0; i < 3; i++) {
+    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(3000);
+    if (page.url().indexOf('show_role_select_page') >= 0) { await handleRoleSelect(page); continue; }
+    ok = await isLoggedIn(page);
+    log('扫码登录验证(第' + (i + 1) + '次):', ok ? '成功' : '失败');
+    if (ok) break;
+    await page.waitForTimeout(3000);
+  }
   if (!ok) return false;
   const storage = await ctx.storageState();
   fs.writeFileSync(NEW_SESSION_FILE, Buffer.from(JSON.stringify(storage), 'utf8').toString('base64'));
@@ -525,8 +570,11 @@ async function tryQrLogin(ctx, page) {
         }
       } catch (e) { /* 二维码元素可能已消失（登录成功跳转中） */ }
     }
-    // 辅助检测 1：页面跳离登录页
-    if (page.url().indexOf('show_login') < 0) return await verifyAndExport(ctx, page);
+    // 辅助检测 1：页面跳离登录页（角色选择页需先自动选角色）
+    const curUrl = page.url();
+    if (curUrl.indexOf('show_role_select_page') >= 0) { await handleRoleSelect(page); continue; }
+    if (curUrl.indexOf('chose_role') >= 0) { await page.waitForTimeout(3000); continue; }
+    if (curUrl.indexOf('show_login') < 0) return await verifyAndExport(ctx, page);
     // 辅助检测 2：主页用户区不再是"梦幻玩家"
     const info = await page.evaluate(() => { const el = document.querySelector('.userInfo'); return el ? el.innerText : ''; }).catch(() => '');
     if (info && !/梦幻玩家/.test(info)) return await verifyAndExport(ctx, page);

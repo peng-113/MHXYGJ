@@ -90,6 +90,46 @@ async function isLoggedIn(page) {
   return txt && !/梦幻玩家/.test(txt);
 }
 
+/** 扫码确认后：若落在角色选择页，自动选中第一个未锁定角色 */
+async function handleRoleSelect(page) {
+  log('检测到角色选择页，自动选择角色…');
+  await page.waitForTimeout(1500);
+  let picked = null;
+  for (const f of page.frames()) {
+    picked = await f.evaluate(() => {
+      try {
+        const rl = window.RoleList;
+        if (rl && typeof rl === 'object') {
+          for (const id of Object.keys(rl)) {
+            const ro = rl[id];
+            if (ro && !ro.is_locked) return { roleid: id, name: ro.role_name || ro.name || ('#' + id) };
+          }
+        }
+      } catch (e) {}
+      return null;
+    }).catch(() => null);
+    if (picked) {
+      await f.evaluate((id) => {
+        if (typeof window.login_in_role === 'function') window.login_in_role(id);
+        else window.location.href = (window.CgiRootUrl || '/cgi-bin') + '/login.py?act=chose_role&roleid=' + id;
+      }, picked.roleid).catch(() => {});
+      break;
+    }
+  }
+  if (!picked) {
+    // 兜底：点击页面上第一个可点击的"选择/进入"类元素
+    const clicked = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('a,button,div,span,li,dt,dd')].find((e) => /选择|登录|进入/.test((e.textContent || '').trim()) && e.textContent.trim().length < 20 && e.offsetParent !== null);
+      if (el) { el.click(); return (el.textContent || '').trim().slice(0, 30); }
+      return '';
+    }).catch(() => '');
+    log('未读到 RoleList，兜底点击:', clicked || '（失败）');
+  } else {
+    log('已自动选择角色:', picked.name, '(roleid=' + picked.roleid + ')');
+  }
+  await page.waitForTimeout(4000);
+}
+
 (async () => {
   log('启动远程扫码登录（本机国内网络，扫码确认不会被风控拦截）');
   if (!WEBHOOK) log('⚠️ 未配置 WECOM_WEBHOOK：二维码只保存到本地文件，请在 .env.local 中加入 WECOM_WEBHOOK=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx');
@@ -161,8 +201,10 @@ async function isLoggedIn(page) {
     await page.waitForTimeout(5000);
 
     // 登录成功检测：主页面跳离登录页 / 用户区变化
-    if (page.url().indexOf('show_login') < 0) { success = true; break; }
-    if (await isLoggedIn(page).catch(() => false)) { success = true; break; }
+    const curUrl = page.url();
+    if (curUrl.indexOf('show_role_select_page') >= 0) { await handleRoleSelect(page); continue; }
+    if (curUrl.indexOf('chose_role') >= 0) { await page.waitForTimeout(3000); continue; }
+    if (curUrl.indexOf('show_login') < 0 && (await isLoggedIn(page).catch(() => false) || curUrl.indexOf('login.py') < 0)) { success = true; break; }
 
     // 直读扫码状态（与云端同源）：408=等待扫码，200=手机端已确认
     if (qrPollUrl) {
@@ -239,10 +281,16 @@ async function isLoggedIn(page) {
 
   // 验证 + 导出 + 更新云端 Secret
   log('登录成功，验证并导出凭证…');
-  await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2500);
-  const ok = await isLoggedIn(page);
-  log('登录验证:', ok ? '通过' : '未通过');
+  let ok = false;
+  for (let i = 0; i < 3; i++) {
+    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    if (page.url().indexOf('show_role_select_page') >= 0) { await handleRoleSelect(page); continue; }
+    ok = await isLoggedIn(page);
+    log('登录验证(第' + (i + 1) + '次):', ok ? '通过' : '未通过', '当前页面:', page.url().slice(0, 90));
+    if (ok) break;
+    await page.waitForTimeout(3000);
+  }
   if (!ok) {
     await sendWecom('❌ 扫码已确认但登录验证未通过，请改用桌面「刷新藏宝阁登录.command」');
     await browser.close();
