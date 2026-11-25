@@ -1,118 +1,21 @@
 name: search-monitor
-
+# 藏宝阁监控已迁移至腾讯云 CloudBase 云托管（国内 IP，更稳定）。
+# 本 workflow 仅作定时闹钟：每 15 分钟唤醒云托管服务跑一轮监控（GET /run）。
+# 监控逻辑、状态回写、扫码自愈全部在云端容器内完成（cloudrun/ 目录）。
 on:
   schedule:
     - cron: '4,19,34,49 * * * *'
-  workflow_dispatch:
-    inputs:
-      digest:
-        description: '立刻推送当前在售汇总'
-        required: false
-        default: 'false'
-      account_login:
-        description: '强制账密登录模式（测试自愈）'
-        required: false
-        default: 'false'
-      qr_login:
-        description: '强制二维码登录模式（测试自愈）'
-        required: false
-        default: 'false'
-
-permissions:
-  contents: write
-
-concurrency:
-  group: search-monitor-${{ github.event.inputs.digest == 'true' && 'manual' || 'main' }}
-  cancel-in-progress: false
+  workflow_dispatch: {}
 
 jobs:
-  run:
+  trigger:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-browsers-1
-
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Install chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Monitor loop
-        env:
-          NETEASE_ACCOUNT: ${{ secrets.NETEASE_ACCOUNT }}
-          NETEASE_PASSWORD: ${{ secrets.NETEASE_PASSWORD }}
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          SESSION_STATE: ${{ secrets.SESSION_STATE }}
-          GH_PAT: ${{ secrets.MONITOR_PAT }}
-          FORCE_DIGEST: ${{ github.event.inputs.digest == 'true' && '1' || '' }}
-          USE_ACCOUNT_LOGIN: ${{ github.event.inputs.account_login == 'true' && '1' || '' }}
-          USE_QR_LOGIN: ${{ github.event.inputs.qr_login == 'true' && '1' || '' }}
+      - name: Trigger CloudBase monitor round
         run: |
-          ROUNDS=$([ "$FORCE_DIGEST" = "1" ] && echo 1 || echo 10)
-          echo "本次轮数: $ROUNDS"
-          for i in $(seq 1 $ROUNDS); do
-            echo "===== 第 $i/$ROUNDS 轮 $(date -u +%H:%M) UTC ====="
-            node scripts/monitor.js || echo "本轮退出码 $?，继续下一轮"
-            git config user.name "monitor-bot"
-            git config user.email "actions@users.noreply.github.com"
-            git pull --rebase origin main || true
-            git add search-state.json 2>/dev/null || true
-            git diff --cached --quiet || git commit -m "监控状态更新 $(date -u +%m-%d-%H:%M)"
-            git push || true
-            # 扫码自愈成功：立即更新 Secret 并结束本轮循环（当前 job 的环境变量无法热更新，
-            # 直接退出让 "Chain next run" 触发新运行读取新凭证，避免后续轮次空转）
-            if [ -f new-session.b64 ]; then
-              echo "检测到扫码自愈新凭证，立即更新 Secret 并交棒下一次运行"
-              python3 -m pip install --quiet pynacl 2>/dev/null || pip install --quiet pynacl || true
-              python3 scripts/put-secret.py new-session.b64 && rm -f new-session.b64
-              break
-            fi
-            if [ $i -lt "$ROUNDS" ]; then
-              # 休眠到下一个固定触发点（每小时第 4 / 19 / 34 / 49 分，15 分钟间隔，避开整点拥堵时段）
-              M=$(date -u +%M); S=$(date -u +%S)
-              NEXT=64
-              for T in 4 19 34 49; do
-                if [ "$T" -gt "$((10#$M))" ]; then NEXT="$T"; break; fi
-              done
-              SLEEP_S=$(( (NEXT - 10#$M) * 60 - 10#$S + 10 ))
-              echo "休眠 ${SLEEP_S}s 至下一个固定触发点（:04/:19/:34/:49）"
-              sleep "$SLEEP_S"
-            fi
-          done
-
-      - name: Refresh SESSION_STATE secret (扫码自愈)
-        if: always()
-        env:
-          GH_PAT: ${{ secrets.MONITOR_PAT }}
-        run: |
-          if [ -f new-session.b64 ]; then
-            python3 -m pip install --quiet pynacl 2>/dev/null || pip install --quiet pynacl || true
-            python3 scripts/put-secret.py new-session.b64 && rm -f new-session.b64
-          else
-            echo "本次运行没有新的扫码登录凭证"
+          code=$(curl -s -m 90 -o /tmp/resp.txt -w "%{http_code}" \
+            "https://mhxy-monitor-354273-11-1343329996.sh.run.tcloudbase.com/run")
+          echo "HTTP $code, response: $(cat /tmp/resp.txt)"
+          if [ "$code" != "200" ]; then
+            echo "::warning::云托管 /run 触发返回 $code，服务可能未运行"
           fi
-
-      - name: Chain next run
-        env:
-          CHAIN_TOKEN: ${{ secrets.MONITOR_PAT }}
-        if: always() && github.event.inputs.digest != 'true'
-        run: |
-          if [ -z "$CHAIN_TOKEN" ]; then
-            echo "未配置 MONITOR_PAT，无法接力（等待 cron 兜底）"
-            exit 0
-          fi
-          curl -s -X POST -o /dev/null -w "接力触发: %{http_code}\n" \
-            -H "Authorization: token $CHAIN_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/search-monitor.yml/dispatches" \
-            -d '{"ref":"main"}'
