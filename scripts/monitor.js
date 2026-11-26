@@ -15,7 +15,9 @@ const CRITERIA_FILE = path.join(__dirname, '..', 'criteria.json');
 const PET_FILE = path.join(__dirname, '..', 'pet-criteria.json');
 const WATCH_FILE = path.join(__dirname, '..', 'watch-list.json');
 const STATE_FILE = path.join(__dirname, '..', 'search-state.json');
-const SEARCH_URL = 'https://xyq.cbg.163.com/cgi-bin/recommend.py';
+// 2026-11-26：搜索接口迁移到 xyq-web 域（新版 SPA），老域 xyq.cbg.163.com 会返回 SESSION_TIMEOUT
+const SEARCH_URL = 'https://xyq-web.cbg.163.com/cgi-bin/recommend.py';
+const SEARCH_REFERER = 'https://xyq-web.cbg.163.com/';
 const SEARCH_TYPE = 'overall_search_role';
 const HOME = 'https://xyq.cbg.163.com';
 const FORM_URL = HOME + '/cgi-bin/xyq_overall_search.py?act=show_search_role_form';
@@ -110,10 +112,15 @@ async function searchOnce(ctx, criteria, pageNo, searchType) {
   qs.set('page', String(pageNo || 1));
   qs.set('count', '15');
   qs.set('_', String(Date.now()));
+  // 新版 SPA 接口必需参数（2026-11-26 实测）
+  qs.set('client_type', 'web');
+  qs.set('nweb', '1');
+  qs.set('exter', 'direct');
+  qs.set('page_session_id', '-');
   Object.keys(criteria || {}).forEach((k) => qs.set(k, criteria[k]));
   const url = `${SEARCH_URL}?callback=cb&${qs.toString()}`;
   // 用 Playwright 请求层（自动携带上下文 cookies，比页面内 fetch 稳定）
-  const resp = await ctx.request.get(url, { headers: { Referer: FORM_URL } });
+  const resp = await ctx.request.get(url, { headers: { Referer: SEARCH_REFERER } });
   const text = await resp.text();
   const m = text.match(/^\w+\(([\s\S]*)\)\s*$/);
   if (!m) throw new Error('响应不是 JSONP：HTTP ' + resp.status() + ' ' + text.slice(0, 120));
@@ -164,19 +171,20 @@ function parseEquipDetailHtml(html) {
   };
 }
 
-/** 查询单条链接的当前售价（电脑版详情页，与搜索同域、直接复用登录凭证） */
+/** 查询单条链接的当前售价（2026-11-26 新版接口：xyq-web get_equip_detail，JSON 直出） */
 async function fetchWatchPrice(ctx, item) {
-  const resp = await ctx.request.get(`${HOME}/cgi-bin/equip_detail.py?s=${item.serverid}&eid=${encodeURIComponent(item.eid)}&client_type=web&o`, {
-    headers: { Referer: HOME + '/' },
-  });
-  if (resp.status() === 302 || resp.status() === 303) throw new Error('详情页跳转登录（凭证失效）');
-  // 页面为 GBK 编码，需按字节解码
-  const buf = await resp.body();
-  let html;
-  try { html = new TextDecoder('gbk').decode(buf); } catch (e) { html = buf.toString('utf8'); }
-  const equip = parseEquipDetailHtml(html);
-  if (!equip) throw new Error('详情页解析失败（HTTP ' + resp.status() + '）');
-  return equip;
+  const u = `https://xyq-web.cbg.163.com/cgi/api/get_equip_detail?client_type=web&serverid=${item.serverid}&eid=${encodeURIComponent(item.eid)}&exclude_equip_desc=1&exter=direct&page_session_id=-&_=${Date.now()}`;
+  const resp = await ctx.request.get(u, { headers: { Referer: 'https://xyq-web.cbg.163.com/' } });
+  const j = JSON.parse(await resp.text());
+  if (!isOk(j)) throw new Error('详情接口失败: ' + (j.msg || j.status || '未知'));
+  const e = j.equip || {};
+  if (!e.equip_name && !e.price) throw new Error('详情接口无数据');
+  return {
+    equip_name: e.equip_name || '',
+    price: Number(e.price) || 0, // 分
+    is_selling: e.status === 2 ? 1 : 0,
+    expire_time_desc: e.expire_time_desc || '',
+  };
 }
 
 /** 账密登录（登录页 show_login.py?act=show_login，网易统一登录 iframe：dl.reg.163.com） */
